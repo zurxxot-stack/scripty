@@ -27,6 +27,12 @@ local yOffset = 0
 local xScale = 3
 local orbitAngle = 0
 
+-- Orbit Prediction Variables
+local orbitPredictionEnabled = false
+local orbitPredictionStrength = 0.2  -- seconds to look ahead
+local lastTargetPosition = nil
+local predictedVelocity = Vector3.new(0, 0, 0)
+
 -- Teleport Variables
 local isTeleportedToSky = false
 local originalPosition = nil
@@ -1075,8 +1081,24 @@ local function startOrbit()
             return
         end
         orbitAngle = orbitAngle + (orbitSpeed * deltaTime)
+
+        -- Prediction: estimate target's future position based on velocity
+        local targetPos = currentTarget.Position
+        if orbitPredictionEnabled then
+            if lastTargetPosition then
+                -- Smooth the velocity estimate with lerp to avoid jitter
+                local rawVelocity = (targetPos - lastTargetPosition) / deltaTime
+                predictedVelocity = predictedVelocity:Lerp(rawVelocity, 0.3)
+            end
+            lastTargetPosition = targetPos
+            targetPos = targetPos + predictedVelocity * orbitPredictionStrength
+        else
+            lastTargetPosition = nil
+            predictedVelocity = Vector3.new(0, 0, 0)
+        end
+
         local offset = Vector3.new(math.cos(orbitAngle) * orbitRadius * xScale + xOffset, yOffset, math.sin(orbitAngle) * orbitRadius)
-        humanoidRootPart.CFrame = CFrame.lookAt(currentTarget.Position + offset, currentTarget.Position)
+        humanoidRootPart.CFrame = CFrame.lookAt(targetPos + offset, targetPos)
         camera.CameraSubject = targetHumanoid
     end)
     return true
@@ -1109,17 +1131,43 @@ local function unspectate()
     end
 end
 
-local function instantTPToPlayer()
+-- Instant TP Toggle Variables
+local instantTPEnabled = false
+local instantTPConnection = nil
+
+local function startInstantTP()
     local targetPlayer = getPlayerByName(tpSelectedName)
     if not targetPlayer or not targetPlayer.Character then
         Rayfield:Notify({ Title = "No Target", Content = "Select a player from the dropdown first", Duration = 2, Image = 4483362458 })
-        return
+        return false
     end
-    local hrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if hrp and humanoidRootPart then
-        humanoidRootPart.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 3, 0))
-        Rayfield:Notify({ Title = "Teleported!", Content = "Instantly TP'd to " .. targetPlayer.Name, Duration = 2, Image = 4483362458 })
-    end
+    if instantTPConnection then instantTPConnection:Disconnect() instantTPConnection = nil end
+    instantTPEnabled = true
+    Rayfield:Notify({ Title = "Instant TP: ON", Content = "Continuously teleporting to " .. targetPlayer.Name, Duration = 2, Image = 4483362458 })
+    instantTPConnection = RunService.Heartbeat:Connect(function()
+        if not instantTPEnabled then
+            instantTPConnection:Disconnect() instantTPConnection = nil return
+        end
+        local tp = getPlayerByName(tpSelectedName)
+        if not tp or not tp.Character or not tp.Parent then
+            instantTPEnabled = false
+            if instantTPConnection then instantTPConnection:Disconnect() instantTPConnection = nil end
+            if Rayfield.Flags["InstantTPToggle"] then Rayfield.Flags["InstantTPToggle"]:Set(false) end
+            Rayfield:Notify({ Title = "Instant TP: OFF", Content = "Target left the game", Duration = 2, Image = 4483362458 })
+            return
+        end
+        local hrp = tp.Character:FindFirstChild("HumanoidRootPart")
+        if hrp and humanoidRootPart then
+            humanoidRootPart.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 3, 0))
+        end
+    end)
+    return true
+end
+
+local function stopInstantTP()
+    instantTPEnabled = false
+    if instantTPConnection then instantTPConnection:Disconnect() instantTPConnection = nil end
+    Rayfield:Notify({ Title = "Instant TP: OFF", Content = "Stopped following target", Duration = 2, Image = 4483362458 })
 end
 
 local function toggleTeleportToSky()
@@ -1534,6 +1582,35 @@ OrbitTab:CreateSlider({ Name = "Y Offset", Range = {-10, 10}, Increment = 1, Suf
 OrbitTab:CreateSlider({ Name = "X Scale", Range = {0.5, 10}, Increment = 0.5, Suffix = "", CurrentValue = 3, Flag = "XScale", Callback = function(Value) xScale = Value end })
 OrbitTab:CreateSlider({ Name = "Orbit Speed", Range = {0.1, 5}, Increment = 0.1, Suffix = "", CurrentValue = 1, Flag = "OrbitSpeed", Callback = function(Value) orbitSpeed = Value end })
 
+OrbitTab:CreateSection("🔮 Movement Prediction")
+OrbitTab:CreateLabel("Predicts where the target is moving so orbit stays ahead of them.")
+OrbitTab:CreateToggle({
+    Name = "Enable Prediction",
+    CurrentValue = false,
+    Flag = "OrbitPredictionToggle",
+    Callback = function(Value)
+        orbitPredictionEnabled = Value
+        predictedVelocity = Vector3.new(0, 0, 0)
+        lastTargetPosition = nil
+        if Value then
+            Rayfield:Notify({ Title = "🔮 Prediction: ON", Content = "Orbit will anticipate target movement", Duration = 2, Image = 4483362458 })
+        else
+            Rayfield:Notify({ Title = "Prediction: OFF", Content = "Using real-time position only", Duration = 2, Image = 4483362458 })
+        end
+    end
+})
+OrbitTab:CreateSlider({
+    Name = "Prediction Strength",
+    Range = {0, 1},
+    Increment = 0.05,
+    Suffix = "s",
+    CurrentValue = 0.2,
+    Flag = "OrbitPredictionStrength",
+    Callback = function(Value)
+        orbitPredictionStrength = Value
+    end
+})
+
 OrbitTab:CreateSection("Select Player")
 local PlayerDropdown = OrbitTab:CreateDropdown({
     Name = "Select Player",
@@ -1560,7 +1637,14 @@ OrbitTab:CreateToggle({ Name = "Orbit", CurrentValue = false, Flag = "OrbitToggl
 end })
 OrbitTab:CreateButton({ Name = "Spectate", Callback = function() spectatePlayer() end })
 OrbitTab:CreateButton({ Name = "Unspectate", Callback = function() unspectate() end })
-OrbitTab:CreateButton({ Name = "Instant TP", Callback = function() instantTPToPlayer() end })
+OrbitTab:CreateToggle({ Name = "Instant TP (Continuous)", CurrentValue = false, Flag = "InstantTPToggle", Callback = function(Value)
+    if Value then
+        local success = startInstantTP()
+        if not success then Rayfield.Flags["InstantTPToggle"]:Set(false) end
+    else
+        stopInstantTP()
+    end
+end })
 OrbitTab:CreateButton({ Name = "Refresh Player List", Callback = function()
     PlayerDropdown:Refresh(getPlayerList())
     Rayfield:Notify({ Title = "Refreshed", Content = "Player list updated", Duration = 2, Image = 4483362458 })
@@ -1623,6 +1707,7 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
         stopBladeMultiAura()
         stopFly()
         if orbitConnection then orbitConnection:Disconnect() end
+        if instantTPConnection then instantTPConnection:Disconnect() end
         if FastAttackConnection then FastAttackConnection:Disconnect() end
         if TeleportAttackConnection then TeleportAttackConnection:Disconnect() end
         if SpeedConnection then SpeedConnection:Disconnect() end
