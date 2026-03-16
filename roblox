@@ -18,7 +18,7 @@ do
     local count, scales = 16, {1, 100, 9999}
     for _, scale in ipairs(scales) do
         for i = 0, count - 1 do
-            local yaw = (i / count) * math.pi * 2
+            local yaw   = (i / count) * math.pi * 2
             local pitch = math.sin((i / count) * math.pi) * math.pi / 2
             table.insert(allDirs, vector.create(
                 math.cos(pitch) * math.cos(yaw) * scale,
@@ -28,48 +28,33 @@ do
         end
     end
 end
-local dirCount = #allDirs
-local EXTRA_DIR = vector.create(-0.9945698976516724, 0, 0.10407081246376038)
+local dirCount   = #allDirs
+local EXTRA_DIR  = vector.create(-0.9945698976516724, 0, 0.10407081246376038)
 local SINGLE_DIR = vector.create(0.12935088574886322, 0, -0.9915988445281982)
 
 -- ════════════════════════════════════════════════
 -- GENERIC AURA FACTORY
 -- ════════════════════════════════════════════════
 local function findRemote(toolName)
-    local lp = Players.LocalPlayer
-    local function search(parent)
-        local tool = parent and parent:FindFirstChild(toolName)
-        return tool and tool:FindFirstChild("LeftClickRemote")
+    local char = player.Character
+    if char then
+        local t = char:FindFirstChild(toolName)
+        if t then local r = t:FindFirstChild("LeftClickRemote") if r then return r end end
     end
-    return search(lp.Character) or search(lp:FindFirstChild("Backpack"))
+    local bp = player:FindFirstChild("Backpack")
+    if bp then
+        local t = bp:FindFirstChild(toolName)
+        if t then return t:FindFirstChild("LeftClickRemote") end
+    end
 end
 
 local function makeSingleAura(toolName)
-    local state = { enabled = false, conn = nil }
+    local state = { enabled = false, conn = nil, remote = nil, remoteSkip = 0 }
     function state.start()
         if state.conn then state.conn:Disconnect() end
+        state.remote, state.remoteSkip = nil, 0
         state.conn = RunService.Heartbeat:Connect(function()
             if not state.enabled then state.conn:Disconnect() state.conn = nil return end
-            local remote = findRemote(toolName)
-            if remote then pcall(remote.FireServer, remote, SINGLE_DIR, 1) end
-        end)
-    end
-    function state.stop()
-        state.enabled = false
-        if state.conn then state.conn:Disconnect() state.conn = nil end
-    end
-    return state
-end
-
-local function makeMultiAura(toolName)
-    local state = { enabled = false, conn = nil, dirIndex = 0, frame = 0, remoteSkip = 0, remote = nil }
-    function state.start()
-        if state.conn then state.conn:Disconnect() end
-        state.frame, state.remoteSkip, state.remote = 0, 0, nil
-        state.conn = RunService.Heartbeat:Connect(function()
-            if not state.enabled then state.conn:Disconnect() state.conn = nil return end
-            state.frame += 1
-            if state.frame % 3 ~= 0 then return end
             state.remoteSkip += 1
             if state.remoteSkip >= 120 or not state.remote then
                 state.remoteSkip = 0
@@ -77,13 +62,41 @@ local function makeMultiAura(toolName)
             end
             local r = state.remote
             if not r then return end
+            pcall(r.FireServer, r, SINGLE_DIR, 1)
+        end)
+    end
+    function state.stop()
+        state.enabled = false
+        if state.conn then state.conn:Disconnect() state.conn = nil end
+        state.remote = nil
+    end
+    return state
+end
+
+local function makeMultiAura(toolName)
+    local state = { enabled = false, conn = nil, dirIndex = 0, remoteSkip = 0, remote = nil }
+    function state.start()
+        if state.conn then state.conn:Disconnect() end
+        state.remoteSkip, state.remote, state.dirIndex = 0, nil, 0
+        state.conn = RunService.Heartbeat:Connect(function()
+            if not state.enabled then state.conn:Disconnect() state.conn = nil return end
+            state.remoteSkip += 1
+            if state.remoteSkip >= 120 or not state.remote then
+                state.remoteSkip = 0
+                state.remote = findRemote(toolName)
+            end
+            local r = state.remote
+            if not r then return end
+            local fs = r.FireServer
             pcall(function()
-                for _ = 1, 4 do
-                    state.dirIndex = (state.dirIndex % dirCount) + 1
-                    r:FireServer(allDirs[state.dirIndex], 1)
+                local di = state.dirIndex
+                for _ = 1, 8 do
+                    di = (di % dirCount) + 1
+                    fs(r, allDirs[di], 1)
                 end
-                r:FireServer(EXTRA_DIR, 2)
-                r:FireServer(EXTRA_DIR, 2)
+                state.dirIndex = di
+                fs(r, EXTRA_DIR, 2)
+                fs(r, EXTRA_DIR, 2)
             end)
         end)
     end
@@ -1033,8 +1046,6 @@ OrbitTab:CreateToggle({ Name = "Auto V4", CurrentValue = false, Flag = "AutoV4To
     end
 })
 
-local testFarmEnabled = false
-local testFarmThread
 
 local function getNearestPlayer()
     local myHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
@@ -1052,41 +1063,68 @@ local function getNearestPlayer()
     return nearest
 end
 
-OrbitTab:CreateSection("Test Farm")
-OrbitTab:CreateToggle({ Name = "Test Farm", CurrentValue = false, Flag = "TestFarmToggle",
+local testScriptEnabled = false
+local testScriptResetThread = nil
+
+local function stopTestScript()
+    testScriptEnabled = false
+    -- Stop B loop
+    bToggled = false
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local flag = hrp:FindFirstChild("BUpLoop")
+        if flag then flag:Destroy() end
+    end
+    -- Stop insta TP
+    if instantTPEnabled then stopInstantTP() end
+    -- Stop reset thread
+    if testScriptResetThread then task.cancel(testScriptResetThread) testScriptResetThread = nil end
+    Rayfield:Notify({ Title = "Test Script: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
+end
+
+local function startTestScript()
+    local near = getNearestPlayer()
+    if not near then
+        Rayfield:Notify({ Title = "Test Script", Content = "No players found nearby", Duration = 2, Image = 4483362458 })
+        return false
+    end
+    testScriptEnabled = true
+    -- Set target
+    tpSelectedName = near.Name
+    orbitSelectedName = near.Name
+    spectateSelectedName = near.Name
+    -- Start insta TP to follow the target
+    if instantTPEnabled then stopInstantTP() end
+    startInstantTP()
+    -- Start B loop
+    bToggled = true
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then startBLoop(hrp) end
+    -- Start auto reset
+    if testScriptResetThread then task.cancel(testScriptResetThread) end
+    testScriptResetThread = task.spawn(function()
+        while testScriptEnabled do
+            task.wait(0.1)
+            local c = player.Character
+            local hum = c and c:FindFirstChild("Humanoid")
+            if hum then hum.Health = 0 end
+        end
+    end)
+    Rayfield:Notify({ Title = "Test Script: ON", Content = "Following "..near.Name.." | B loop + insta TP + auto reset", Duration = 3, Image = 4483362458 })
+    return true
+end
+
+OrbitTab:CreateSection("Test Script")
+OrbitTab:CreateToggle({ Name = "Test Script", CurrentValue = false, Flag = "TestScriptToggle",
     Callback = function(v)
-        testFarmEnabled = v
         if v then
-            if testFarmThread then task.cancel(testFarmThread) end
-            local near = getNearestPlayer()
-            if near then
-                tpSelectedName = near.Name
-                orbitSelectedName = near.Name
-                spectateSelectedName = near.Name
-                if instantTPEnabled then stopInstantTP() end
-                startInstantTP()
-            else
-                Rayfield:Notify({ Title = "Test Farm", Content = "No players found nearby", Duration = 2, Image = 4483362458 })
+            if not startTestScript() then
+                Rayfield.Flags["TestScriptToggle"]:Set(false)
             end
-            testFarmThread = task.spawn(function()
-                while testFarmEnabled do
-                    local char = player.Character
-                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                    local hum = char and char:FindFirstChild("Humanoid")
-                    if hrp and hum then
-                        hrp.CFrame = CFrame.new(0, 10000000, 0)
-                        task.wait()
-                        hum.Health = 0
-                    end
-                    task.wait()
-                end
-            end)
-            Rayfield:Notify({ Title = "Test Farm: ON", Content = "Teleporting up + instant TP + unhittable", Duration = 3, Image = 4483362458 })
         else
-            testFarmEnabled = false
-            if testFarmThread then task.cancel(testFarmThread) testFarmThread = nil end
-            stopInstantTP()
-            Rayfield:Notify({ Title = "Test Farm: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
+            stopTestScript()
         end
     end
 })
@@ -1160,7 +1198,7 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
     if HitboxEnabled then extendHitboxes(false) end
     if DeathBarrierDisabled then toggleDeathBarrier(false) end
     if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
-    if testFarmThread then task.cancel(testFarmThread) testFarmThread = nil end
+    if testScriptEnabled then stopTestScript() end
 end)
 
 Rayfield:LoadConfiguration()
