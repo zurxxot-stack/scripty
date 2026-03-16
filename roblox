@@ -1009,13 +1009,8 @@ OrbitTab:CreateToggle({ Name = "Auto Reset (every 0.1s)", CurrentValue = false, 
                 while autoResetEnabled do
                     task.wait(0.1)
                     local char = player.Character
-                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
                     local hum = char and char:FindFirstChild("Humanoid")
-                    if hrp and hum then
-                        hrp.CFrame = CFrame.new(99999999, 9000000, 0)
-                        task.wait()
-                        hum.Health = 0
-                    end
+                    if hum then hum.Health = 0 end
                 end
             end)
         else
