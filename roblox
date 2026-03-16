@@ -1062,6 +1062,9 @@ local function getScreenBounds(char)
 end
 
 local function updateESP()
+    for p in espObjects do
+        if not p.Parent then removeESP(p) end
+    end
     for _, p in Players:GetPlayers() do
         if p == player then continue end
         local char = p.Character
