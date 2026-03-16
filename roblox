@@ -30,9 +30,9 @@ local function makeSingleAura(toolName)
         state.conn = RunService.Heartbeat:Connect(function()
             if not state.enabled then state.conn:Disconnect() state.conn = nil return end
             state.frame += 1
-            if state.frame % 2 ~= 0 then return end
+            if state.frame % 6 ~= 0 then return end
             state.remoteSkip += 1
-            if state.remoteSkip >= 60 or not state.remote then
+            if state.remoteSkip >= 20 or not state.remote then
                 state.remoteSkip = 0
                 state.remote = findRemote(toolName)
             end
@@ -62,9 +62,9 @@ local function makeMultiAura(toolName)
         state.conn = RunService.Heartbeat:Connect(function()
             if not state.enabled then state.conn:Disconnect() state.conn = nil return end
             state.frame += 1
-            if state.frame % 2 ~= 0 then return end
+            if state.frame % 6 ~= 0 then return end
             state.remoteSkip += 1
-            if state.remoteSkip >= 60 or not state.remote then
+            if state.remoteSkip >= 20 or not state.remote then
                 state.remoteSkip = 0
                 state.remote = findRemote(toolName)
             end
@@ -74,6 +74,8 @@ local function makeMultiAura(toolName)
             pcall(function()
                 fs(r, DIR_A, 1)
                 fs(r, DIR_B, 1)
+                fs(r, SINGLE_DIR, 1)
+                fs(r, EXTRA_DIR, 2)
             end)
         end)
     end
