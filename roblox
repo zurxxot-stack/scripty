@@ -1081,19 +1081,26 @@ OrbitTab:CreateToggle({ Name = "Test Farm", CurrentValue = false, Flag = "TestFa
             else
                 Rayfield:Notify({ Title = "Test Farm", Content = "No players found nearby", Duration = 2, Image = 4483362458 })
             end
-            -- Continuously teleport up while instant TP keeps us on the target
+            setUnhittable(true)
             testFarmThread = task.spawn(function()
                 while testFarmEnabled do
-                    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-                    if hrp then hrp.CFrame = CFrame.new(0, 999999999999999999999, 0) end
+                    local char = player.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    local hum = char and char:FindFirstChild("Humanoid")
+                    if hrp and hum then
+                        hrp.CFrame = CFrame.new(0, 10000000, 0)
+                        task.wait()
+                        hum.Health = 0
+                    end
                     task.wait()
                 end
             end)
-            Rayfield:Notify({ Title = "Test Farm: ON", Content = "Teleporting up + instant TP on target", Duration = 3, Image = 4483362458 })
+            Rayfield:Notify({ Title = "Test Farm: ON", Content = "Teleporting up + instant TP + unhittable", Duration = 3, Image = 4483362458 })
         else
             testFarmEnabled = false
             if testFarmThread then task.cancel(testFarmThread) testFarmThread = nil end
             stopInstantTP()
+            setUnhittable(false)
             Rayfield:Notify({ Title = "Test Farm: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
         end
     end
