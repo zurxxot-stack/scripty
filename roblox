@@ -23,14 +23,16 @@ local function findRemote(toolName)
     end
 end
 local function makeSingleAura(toolName)
-    local state = { enabled = false, conn = nil, remote = nil, remoteSkip = 0 }
+    local state = { enabled = false, conn = nil, remote = nil, remoteSkip = 0, frame = 0 }
     function state.start()
         if state.conn then state.conn:Disconnect() end
-        state.remote, state.remoteSkip = nil, 0
+        state.remote, state.remoteSkip, state.frame = nil, 0, 0
         state.conn = RunService.Heartbeat:Connect(function()
             if not state.enabled then state.conn:Disconnect() state.conn = nil return end
+            state.frame += 1
+            if state.frame % 2 ~= 0 then return end
             state.remoteSkip += 1
-            if state.remoteSkip >= 120 or not state.remote then
+            if state.remoteSkip >= 60 or not state.remote then
                 state.remoteSkip = 0
                 state.remote = findRemote(toolName)
             end
@@ -53,14 +55,16 @@ local function makeSingleAura(toolName)
     return state
 end
 local function makeMultiAura(toolName)
-    local state = { enabled = false, conn = nil, remoteSkip = 0, remote = nil }
+    local state = { enabled = false, conn = nil, remoteSkip = 0, remote = nil, frame = 0 }
     function state.start()
         if state.conn then state.conn:Disconnect() end
-        state.remoteSkip, state.remote = 0, nil
+        state.remoteSkip, state.remote, state.frame = 0, nil, 0
         state.conn = RunService.Heartbeat:Connect(function()
             if not state.enabled then state.conn:Disconnect() state.conn = nil return end
+            state.frame += 1
+            if state.frame % 2 ~= 0 then return end
             state.remoteSkip += 1
-            if state.remoteSkip >= 120 or not state.remote then
+            if state.remoteSkip >= 60 or not state.remote then
                 state.remoteSkip = 0
                 state.remote = findRemote(toolName)
             end
@@ -842,15 +846,17 @@ OrbitTab:CreateToggle({ Name = "Auto Reset (every 0.1s)", CurrentValue = false, 
     Callback = function(v)
         autoResetEnabled = v
         if v then
-            if autoResetThread then autoResetThread:Disconnect() end
-            autoResetThread = RunService.Heartbeat:Connect(function()
-                if not autoResetEnabled then autoResetThread:Disconnect() autoResetThread = nil return end
-                local char = player.Character
-                local hum = char and char:FindFirstChild("Humanoid")
-                if hum then hum.Health = 0 end
+            if autoResetThread then task.cancel(autoResetThread) end
+            autoResetThread = task.spawn(function()
+                while autoResetEnabled do
+                    task.wait(0.05)
+                    local char = player.Character
+                    local hum = char and char:FindFirstChild("Humanoid")
+                    if hum then hum.Health = 0 end
+                end
             end)
         else
-            if autoResetThread then autoResetThread:Disconnect() autoResetThread = nil end
+            if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
         end
     end
 })
@@ -978,7 +984,7 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
     for _, c in DeathBarrierConnections do if c and c.Disconnect then c:Disconnect() end end
     if HitboxEnabled then extendHitboxes(false) end
     if DeathBarrierDisabled then toggleDeathBarrier(false) end
-    if autoResetThread then autoResetThread:Disconnect() autoResetThread = nil end
+    if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
     if testScriptEnabled then stopTestScript() end
 end)
 Rayfield:LoadConfiguration()
