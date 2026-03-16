@@ -853,23 +853,35 @@ local Window = Rayfield:CreateWindow({
 -- COMBAT TAB
 local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
 
+local auraOrder = {
+    { key = "TRex",    label = "T-Rex",   icon = "🦖" },
+    { key = "Kitsune", label = "Kitsune", icon = "🦊" },
+    { key = "Dragon",  label = "Dragon",  icon = "🐲" },
+    { key = "Gas",     label = "Gas",     icon = "☁️" },
+    { key = "Blade",   label = "Blade",   icon = "🗡️" },
+}
+
 CombatTab:CreateSection("M1 Auras")
-CombatTab:CreateToggle({ Name = "All M1 Auras", CurrentValue = false, Flag = "AllAuraSingle",
-    Callback = function(v)
-        for _, aura in Auras do
+for _, info in auraOrder do
+    local aura = Auras[info.key]
+    CombatTab:CreateToggle({ Name = info.icon.." "..info.label, CurrentValue = false, Flag = info.key.."AuraSingle",
+        Callback = function(v)
             aura.single.enabled = v
             if v then aura.single.start() else aura.single.stop() end
         end
-    end
-})
-CombatTab:CreateToggle({ Name = "All Fixxer Upper (Multi-Dir)", CurrentValue = false, Flag = "AllAuraMulti",
-    Callback = function(v)
-        for _, aura in Auras do
+    })
+end
+
+CombatTab:CreateSection("Fixxer Upper (Multi-Dir)")
+for _, info in auraOrder do
+    local aura = Auras[info.key]
+    CombatTab:CreateToggle({ Name = info.icon.." "..info.label, CurrentValue = false, Flag = info.key.."AuraMulti",
+        Callback = function(v)
             aura.multi.enabled = v
             if v then aura.multi.start() else aura.multi.stop() end
         end
-    end
-})
+    })
+end
 
 CombatTab:CreateSection("⚡ Kill Aura")
 CombatTab:CreateToggle({ Name = "Enable Kill Aura", CurrentValue = false, Flag = "KillAuraToggle",
