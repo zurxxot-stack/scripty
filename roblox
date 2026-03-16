@@ -11,21 +11,27 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local character, humanoidRootPart, humanoid
 
 -- ════════════════════════════════════════════════
--- SHARED AURA DIRECTIONS
+-- SHARED AURA DIRECTIONS — full sphere at 3 scales
 -- ════════════════════════════════════════════════
 local allDirs = {}
 do
-    local count, scales = 16, {1, 100, 9999}
+    local yawSteps, pitchSteps = 16, 8
+    local scales = {1, 100, 9999}
     for _, scale in ipairs(scales) do
-        for i = 0, count - 1 do
-            local yaw = (i / count) * math.pi * 2
-            local pitch = math.sin((i / count) * math.pi) * math.pi / 2
-            table.insert(allDirs, vector.create(
-                math.cos(pitch) * math.cos(yaw) * scale,
-                math.sin(pitch) * scale,
-                math.cos(pitch) * math.sin(yaw) * scale
-            ))
+        for yi = 0, yawSteps - 1 do
+            for pi = 0, pitchSteps - 1 do
+                local yaw   = (yi / yawSteps) * math.pi * 2
+                local pitch = ((pi / (pitchSteps - 1)) - 0.5) * math.pi
+                table.insert(allDirs, vector.create(
+                    math.cos(pitch) * math.cos(yaw) * scale,
+                    math.sin(pitch) * scale,
+                    math.cos(pitch) * math.sin(yaw) * scale
+                ))
+            end
         end
+        -- poles
+        table.insert(allDirs, vector.create(0,  scale, 0))
+        table.insert(allDirs, vector.create(0, -scale, 0))
     end
 end
 local dirCount = #allDirs
@@ -34,9 +40,6 @@ local SINGLE_DIR = vector.create(0.12935088574886322, 0, -0.9915988445281982)
 
 -- ════════════════════════════════════════════════
 -- GENERIC AURA FACTORY
--- Creates start/stop for single-dir and multi-dir auras.
--- toolName: e.g. "T-Rex-T-Rex"
--- Returns { enabled, start, stop } for both variants.
 -- ════════════════════════════════════════════════
 local function findRemote(toolName)
     local lp = Players.LocalPlayer
@@ -65,14 +68,12 @@ local function makeSingleAura(toolName)
 end
 
 local function makeMultiAura(toolName)
-    local state = { enabled = false, conn = nil, dirIndex = 0, frame = 0, remoteSkip = 0, remote = nil }
+    local state = { enabled = false, conn = nil, remoteSkip = 0, remote = nil }
     function state.start()
         if state.conn then state.conn:Disconnect() end
-        state.frame, state.remoteSkip, state.remote = 0, 0, nil
+        state.remoteSkip, state.remote = 0, nil
         state.conn = RunService.Heartbeat:Connect(function()
             if not state.enabled then state.conn:Disconnect() state.conn = nil return end
-            state.frame += 1
-            if state.frame % 3 ~= 0 then return end
             state.remoteSkip += 1
             if state.remoteSkip >= 120 or not state.remote then
                 state.remoteSkip = 0
@@ -81,9 +82,8 @@ local function makeMultiAura(toolName)
             local r = state.remote
             if not r then return end
             pcall(function()
-                for _ = 1, 4 do
-                    state.dirIndex = (state.dirIndex % dirCount) + 1
-                    r:FireServer(allDirs[state.dirIndex], 1)
+                for i = 1, dirCount do
+                    r:FireServer(allDirs[i], 1)
                 end
                 r:FireServer(EXTRA_DIR, 2)
                 r:FireServer(EXTRA_DIR, 2)
@@ -853,30 +853,23 @@ local Window = Rayfield:CreateWindow({
 -- COMBAT TAB
 local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
 
--- Generic aura UI builder
-local auraOrder = {
-    { key = "TRex",    label = "T-Rex",   icon = "🦖" },
-    { key = "Kitsune", label = "Kitsune", icon = "🦊" },
-    { key = "Dragon",  label = "Dragon",  icon = "🐲" },
-    { key = "Gas",     label = "Gas",     icon = "☁️" },
-    { key = "Blade",   label = "Blade",   icon = "🗡️" },
-}
-for _, info in auraOrder do
-    local aura = Auras[info.key]
-    CombatTab:CreateSection(info.icon.." "..info.label.." Aura")
-    CombatTab:CreateToggle({ Name = "M1 Aura", CurrentValue = false, Flag = info.key.."AuraSingle",
-        Callback = function(v)
+CombatTab:CreateSection("M1 Auras")
+CombatTab:CreateToggle({ Name = "All M1 Auras", CurrentValue = false, Flag = "AllAuraSingle",
+    Callback = function(v)
+        for _, aura in Auras do
             aura.single.enabled = v
             if v then aura.single.start() else aura.single.stop() end
         end
-    })
-    CombatTab:CreateToggle({ Name = "Fixxer Upper (Multi-Dir)", CurrentValue = false, Flag = info.key.."AuraMulti",
-        Callback = function(v)
+    end
+})
+CombatTab:CreateToggle({ Name = "All Fixxer Upper (Multi-Dir)", CurrentValue = false, Flag = "AllAuraMulti",
+    Callback = function(v)
+        for _, aura in Auras do
             aura.multi.enabled = v
             if v then aura.multi.start() else aura.multi.stop() end
         end
-    })
-end
+    end
+})
 
 CombatTab:CreateSection("⚡ Kill Aura")
 CombatTab:CreateToggle({ Name = "Enable Kill Aura", CurrentValue = false, Flag = "KillAuraToggle",
@@ -1120,6 +1113,36 @@ end)
 -- KEYBINDS
 -- ════════════════════════════════════════════════
 local hTeleportSaved = nil
+local hUnhittableConn = nil
+
+local function setUnhittable(enabled)
+    if hUnhittableConn then hUnhittableConn:Disconnect() hUnhittableConn = nil end
+    if enabled then
+        hUnhittableConn = RunService.Stepped:Connect(function()
+            local char = player.Character
+            if not char then return end
+            for _, p in char:GetDescendants() do
+                if p:IsA("BasePart") then
+                    p.CanCollide = false
+                    p.CanTouch   = false
+                    p.CanQuery   = false
+                end
+            end
+        end)
+    else
+        local char = player.Character
+        if char then
+            for _, p in char:GetDescendants() do
+                if p:IsA("BasePart") then
+                    p.CanCollide = true
+                    p.CanTouch   = true
+                    p.CanQuery   = true
+                end
+            end
+        end
+    end
+end
+
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
     if input.KeyCode == Enum.KeyCode.N then toggleTeleportToSky() end
@@ -1129,9 +1152,11 @@ UserInputService.InputBegan:Connect(function(input, gp)
         if hTeleportSaved then
             hrp.CFrame = hTeleportSaved
             hTeleportSaved = nil
+            setUnhittable(false)
         else
             hTeleportSaved = hrp.CFrame
-            hrp.CFrame = CFrame.new(0, 999999999999999999999, 0)
+            hrp.CFrame = CFrame.new(0, 10000000, 0)
+            setUnhittable(true)
         end
     end
 end)
@@ -1154,6 +1179,7 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
     if DeathBarrierDisabled then toggleDeathBarrier(false) end
     if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
     if testFarmThread then task.cancel(testFarmThread) testFarmThread = nil end
+    setUnhittable(false)
 end)
 
 Rayfield:LoadConfiguration()
