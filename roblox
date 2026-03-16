@@ -11,27 +11,16 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local character, humanoidRootPart, humanoid
 
 -- ════════════════════════════════════════════════
--- SHARED AURA DIRECTIONS — full sphere at 3 scales
+-- SHARED AURA DIRECTIONS — 8 directions at 3 scales
 -- ════════════════════════════════════════════════
 local allDirs = {}
 do
-    local yawSteps, pitchSteps = 16, 8
     local scales = {1, 100, 9999}
+    local angles = {0, math.pi/4, math.pi/2, 3*math.pi/4, math.pi, 5*math.pi/4, 3*math.pi/2, 7*math.pi/4}
     for _, scale in ipairs(scales) do
-        for yi = 0, yawSteps - 1 do
-            for pi = 0, pitchSteps - 1 do
-                local yaw   = (yi / yawSteps) * math.pi * 2
-                local pitch = ((pi / (pitchSteps - 1)) - 0.5) * math.pi
-                table.insert(allDirs, vector.create(
-                    math.cos(pitch) * math.cos(yaw) * scale,
-                    math.sin(pitch) * scale,
-                    math.cos(pitch) * math.sin(yaw) * scale
-                ))
-            end
+        for _, yaw in ipairs(angles) do
+            table.insert(allDirs, vector.create(math.cos(yaw) * scale, 0, math.sin(yaw) * scale))
         end
-        -- poles
-        table.insert(allDirs, vector.create(0,  scale, 0))
-        table.insert(allDirs, vector.create(0, -scale, 0))
     end
 end
 local dirCount = #allDirs
