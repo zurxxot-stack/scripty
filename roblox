@@ -97,11 +97,11 @@ end
 
 -- Aura instances
 local Auras = {
-    TRex    = { single = makeSingleAura("T-Rex-T-Rex"),    multi = makeMultiAura("T-Rex-T-Rex"),    icon = "🦖" },
-    Kitsune = { single = makeSingleAura("Kitsune-Kitsune"), multi = makeMultiAura("Kitsune-Kitsune"), icon = "🦊" },
-    Dragon  = { single = makeSingleAura("Dragon-Dragon"),   multi = makeMultiAura("Dragon-Dragon"),   icon = "🐲" },
-    Gas     = { single = makeSingleAura("Gas-Gas"),         multi = makeMultiAura("Gas-Gas"),         icon = "☁️" },
-    Blade   = { single = makeSingleAura("Blade-Blade"),     multi = makeMultiAura("Blade-Blade"),     icon = "🗡️" },
+    TRex    = { single = makeSingleAura("T-Rex-T-Rex"),     multi = makeMultiAura("T-Rex-T-Rex")    },
+    Kitsune = { single = makeSingleAura("Kitsune-Kitsune"), multi = makeMultiAura("Kitsune-Kitsune") },
+    Dragon  = { single = makeSingleAura("Dragon-Dragon"),   multi = makeMultiAura("Dragon-Dragon")   },
+    Gas     = { single = makeSingleAura("Gas-Gas"),         multi = makeMultiAura("Gas-Gas")         },
+    Blade   = { single = makeSingleAura("Blade-Blade"),     multi = makeMultiAura("Blade-Blade")     },
 }
 
 -- ════════════════════════════════════════════════
@@ -851,28 +851,22 @@ local Window = Rayfield:CreateWindow({
 local CombatTab = Window:CreateTab("Combat", 4483362458)
 
 local auraOrder = {
-    { key = "TRex",    label = "T-Rex"   },
-    { key = "Kitsune", label = "Kitsune" },
-    { key = "Dragon",  label = "Dragon"  },
-    { key = "Gas",     label = "Gas"     },
-    { key = "Blade",   label = "Blade"   },
+    { key = "TRex",    label = "T-Rex",   icon = "" },
+    { key = "Kitsune", label = "Kitsune", icon = "" },
+    { key = "Dragon",  label = "Dragon",  icon = "" },
+    { key = "Gas",     label = "Gas",     icon = "" },
+    { key = "Blade",   label = "Blade",   icon = "" },
 }
-
-CombatTab:CreateSection("M1 Auras")
 for _, info in auraOrder do
     local aura = Auras[info.key]
-    CombatTab:CreateToggle({ Name = info.label, CurrentValue = false, Flag = info.key.."AuraSingle",
+    CombatTab:CreateSection(info.label.." Aura")
+    CombatTab:CreateToggle({ Name = "M1 Aura", CurrentValue = false, Flag = info.key.."AuraSingle",
         Callback = function(v)
             aura.single.enabled = v
             if v then aura.single.start() else aura.single.stop() end
         end
     })
-end
-
-CombatTab:CreateSection("Fixxer Upper (Multi-Dir)")
-for _, info in auraOrder do
-    local aura = Auras[info.key]
-    CombatTab:CreateToggle({ Name = info.label, CurrentValue = false, Flag = info.key.."AuraMulti",
+    CombatTab:CreateToggle({ Name = "Fixxer Upper (Multi-Dir)", CurrentValue = false, Flag = info.key.."AuraMulti",
         Callback = function(v)
             aura.multi.enabled = v
             if v then aura.multi.start() else aura.multi.stop() end
