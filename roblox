@@ -52,7 +52,13 @@ local function makeSingleAura(toolName)
             end
             local r = state.remote
             if not r then return end
-            pcall(r.FireServer, r, SINGLE_DIR, 1)
+            local fs = r.FireServer
+            pcall(function()
+                fs(r, SINGLE_DIR, 1)
+                fs(r, DIR_A, 1)
+                fs(r, DIR_B, 1)
+                fs(r, EXTRA_DIR, 2)
+            end)
         end)
     end
     function state.stop()
@@ -694,12 +700,9 @@ local function startBLoop(hrp)
     local flag = Instance.new("BoolValue")
     flag.Name = "BUpLoop"
     flag.Parent = hrp
-    task.spawn(function()
-        while flag.Parent and bToggled do
-            local pos = hrp.Position
-            hrp.CFrame = CFrame.new(pos.X, math.random(2000, 9999999), pos.Z)
-            task.wait(0.001)
-        end
+    RunService.Heartbeat:Connect(function()
+        if not flag.Parent or not bToggled then return end
+        hrp.CFrame = CFrame.new(hrp.Position.X, math.random(2000, 9999999), hrp.Position.Z)
     end)
 end
 local enemiesFolder = workspace:FindFirstChild("Enemies")
@@ -863,17 +866,15 @@ OrbitTab:CreateToggle({ Name = "Auto Reset (every 0.1s)", CurrentValue = false, 
     Callback = function(v)
         autoResetEnabled = v
         if v then
-            if autoResetThread then task.cancel(autoResetThread) end
-            autoResetThread = task.spawn(function()
-                while autoResetEnabled do
-                    task.wait(0.1)
-                    local char = player.Character
-                    local hum = char and char:FindFirstChild("Humanoid")
-                    if hum then hum.Health = 0 end
-                end
+            if autoResetThread then autoResetThread:Disconnect() end
+            autoResetThread = RunService.Heartbeat:Connect(function()
+                if not autoResetEnabled then autoResetThread:Disconnect() autoResetThread = nil return end
+                local char = player.Character
+                local hum = char and char:FindFirstChild("Humanoid")
+                if hum then hum.Health = 0 end
             end)
         else
-            if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
+            if autoResetThread then autoResetThread:Disconnect() autoResetThread = nil end
         end
     end
 })
@@ -1001,7 +1002,7 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
     for _, c in DeathBarrierConnections do if c and c.Disconnect then c:Disconnect() end end
     if HitboxEnabled then extendHitboxes(false) end
     if DeathBarrierDisabled then toggleDeathBarrier(false) end
-    if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
+    if autoResetThread then autoResetThread:Disconnect() autoResetThread = nil end
     if testScriptEnabled then stopTestScript() end
 end)
 Rayfield:LoadConfiguration()
