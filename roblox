@@ -6,24 +6,8 @@ local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local character, humanoidRootPart, humanoid
-local allDirs = {}
-do
-    local count, scales = 16, {1, 100, 9999}
-    for _, scale in ipairs(scales) do
-        for i = 0, count - 1 do
-            local yaw = (i / count) * math.pi * 2
-            local pitch = math.sin((i / count) * math.pi) * math.pi / 2
-            table.insert(allDirs, vector.create(
-                math.cos(pitch) * math.cos(yaw) * scale,
-                math.sin(pitch) * scale,
-                math.cos(pitch) * math.sin(yaw) * scale
-            ))
-        end
-    end
-end
-local dirCount   = #allDirs
-local EXTRA_DIR  = vector.create(-0.9945698976516724, 0, 0.10407081246376038)
 local SINGLE_DIR = vector.create(0.12935088574886322, 0, -0.9915988445281982)
+local EXTRA_DIR  = vector.create(-0.9945698976516724, 0, 0.10407081246376038)
 local DIR_A = vector.create(1, 0, 0)
 local DIR_B = vector.create(-1, 0, 0)
 local function findRemote(toolName)
@@ -69,10 +53,10 @@ local function makeSingleAura(toolName)
     return state
 end
 local function makeMultiAura(toolName)
-    local state = { enabled = false, conn = nil, dirIndex = 0, remoteSkip = 0, remote = nil }
+    local state = { enabled = false, conn = nil, remoteSkip = 0, remote = nil }
     function state.start()
         if state.conn then state.conn:Disconnect() end
-        state.remoteSkip, state.remote, state.dirIndex = 0, nil, 0
+        state.remoteSkip, state.remote = 0, nil
         state.conn = RunService.Heartbeat:Connect(function()
             if not state.enabled then state.conn:Disconnect() state.conn = nil return end
             state.remoteSkip += 1
@@ -84,16 +68,8 @@ local function makeMultiAura(toolName)
             if not r then return end
             local fs = r.FireServer
             pcall(function()
-                local di = state.dirIndex
-                for _ = 1, 8 do
-                    di = (di % dirCount) + 1
-                    fs(r, allDirs[di], 1)
-                end
-                state.dirIndex = di
                 fs(r, DIR_A, 1)
                 fs(r, DIR_B, 1)
-                fs(r, EXTRA_DIR, 2)
-                fs(r, EXTRA_DIR, 2)
             end)
         end)
     end
