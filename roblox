@@ -5,83 +5,20 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
--- Load Rayfield UI Library
-print("Loading Rayfield UI...")
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-print("Rayfield UI loaded successfully!")
 
--- Character References
-local character
-local humanoidRootPart
-local humanoid
-
--- Orbit Variables
-local orbiting = false
-local orbitSpeed = 1
-local orbitRadius = 3
-local orbitConnection
-local currentTarget
-local selectedPlayer = nil
-local xOffset = 0
-local yOffset = 0
-local xScale = 3
-local orbitAngle = 0
-
--- Orbit Prediction Variables
-local orbitPredictionEnabled = false
-local orbitPredictionStrength = 0.2  -- seconds to look ahead
-local lastTargetPosition = nil
-local predictedVelocity = Vector3.new(0, 0, 0)
-
--- Teleport Variables
-local isTeleportedToSky = false
-local originalPosition = nil
-
--- Hitbox Extender Variables
-local HitboxEnabled = false
-local HitboxSize = 20
-local HitboxTransparency = 0.5
-local OriginalSizes = {}
-
--- Speed Variables
-local SpeedEnabled = false
-local SpeedValue = 1
-local SpeedConnection = nil
-
--- Auto TP on Low Health Variables
-local AutoTPEnabled = false
-local AutoTPConnection = nil
-local HealthThreshold = 30
-local TPCooldown = false
-
--- Fast Attack Variables
-local FastAttackRange = 2000
-local FastAttackEnabled = false
-local FastAttackConnection = nil
-local BringMobsEnabled = false
-local BringAllNPCsEnabled = false
-local BringAllNPCsConnection = nil
-local TeleportAttackEnabled = false
-local TeleportAttackConnection = nil
+-- Character refs (kept current by onCharacterAdded)
+local character, humanoidRootPart, humanoid
 
 -- ════════════════════════════════════════════════
--- FLY VARIABLES
--- ════════════════════════════════════════════════
-local flyEnabled = false
-local flySpeed = 150
-local flyConn = nil
-local noclipFlyConn = nil
-
--- ════════════════════════════════════════════════
--- SHARED MULTI-DIR AURA DIRECTIONS
+-- SHARED AURA DIRECTIONS
 -- ════════════════════════════════════════════════
 local allDirs = {}
 do
-    local count  = 16
-    local scales = {1, 100, 9999}
+    local count, scales = 16, {1, 100, 9999}
     for _, scale in ipairs(scales) do
         for i = 0, count - 1 do
-            local yaw   = (i / count) * math.pi * 2
+            local yaw = (i / count) * math.pi * 2
             local pitch = math.sin((i / count) * math.pi) * math.pi / 2
             table.insert(allDirs, vector.create(
                 math.cos(pitch) * math.cos(yaw) * scale,
@@ -93,442 +30,119 @@ do
 end
 local dirCount = #allDirs
 local EXTRA_DIR = vector.create(-0.9945698976516724, 0, 0.10407081246376038)
+local SINGLE_DIR = vector.create(0.12935088574886322, 0, -0.9915988445281982)
 
 -- ════════════════════════════════════════════════
--- T-REX MULTI-DIR AURA
+-- GENERIC AURA FACTORY
+-- Creates start/stop for single-dir and multi-dir auras.
+-- toolName: e.g. "T-Rex-T-Rex"
+-- Returns { enabled, start, stop } for both variants.
 -- ════════════════════════════════════════════════
-local TRexMultiAuraEnabled = false
-local TRexMultiAuraConn = nil
-local tRexDirIndex = 0
-local tRexFrameSkip = 0
-local cachedTRexRemote = nil
-local tRexRemoteCheckSkip = 0
-
-local function findTRexRemote()
+local function findRemote(toolName)
+    local lp = Players.LocalPlayer
     local function search(parent)
-        if not parent then return nil end
-        local tool = parent:FindFirstChild("T-Rex-T-Rex")
+        local tool = parent and parent:FindFirstChild(toolName)
         return tool and tool:FindFirstChild("LeftClickRemote")
     end
-    return search(Players.LocalPlayer.Character) or search(Players.LocalPlayer:FindFirstChild("Backpack"))
+    return search(lp.Character) or search(lp:FindFirstChild("Backpack"))
 end
 
-local function startTRexMultiAura()
-    if TRexMultiAuraConn then TRexMultiAuraConn:Disconnect() TRexMultiAuraConn = nil end
-    tRexFrameSkip = 0
-    tRexRemoteCheckSkip = 0
-    cachedTRexRemote = nil
-    TRexMultiAuraConn = RunService.Heartbeat:Connect(function()
-        if not TRexMultiAuraEnabled then TRexMultiAuraConn:Disconnect() TRexMultiAuraConn = nil return end
-        tRexFrameSkip += 1
-        if tRexFrameSkip % 3 ~= 0 then return end
-        tRexRemoteCheckSkip += 1
-        if tRexRemoteCheckSkip >= 120 or not cachedTRexRemote then
-            tRexRemoteCheckSkip = 0
-            cachedTRexRemote = findTRexRemote()
-        end
-        local remote = cachedTRexRemote
-        if not remote then return end
-        pcall(function()
-            for i = 1, 4 do
-                tRexDirIndex = (tRexDirIndex % dirCount) + 1
-                remote:FireServer(allDirs[tRexDirIndex], 1)
-            end
-            for i = 1, 2 do
-                remote:FireServer(EXTRA_DIR, 2)
-            end
+local function makeSingleAura(toolName)
+    local state = { enabled = false, conn = nil }
+    function state.start()
+        if state.conn then state.conn:Disconnect() end
+        state.conn = RunService.Heartbeat:Connect(function()
+            if not state.enabled then state.conn:Disconnect() state.conn = nil return end
+            local remote = findRemote(toolName)
+            if remote then pcall(remote.FireServer, remote, SINGLE_DIR, 1) end
         end)
-    end)
-end
-
-local function stopTRexMultiAura()
-    TRexMultiAuraEnabled = false
-    if TRexMultiAuraConn then TRexMultiAuraConn:Disconnect() TRexMultiAuraConn = nil end
-    cachedTRexRemote = nil
-end
-
--- ════════════════════════════════════════════════
--- KITSUNE MULTI-DIR AURA
--- ════════════════════════════════════════════════
-local KitsuneMultiAuraEnabled = false
-local KitsuneMultiAuraConn = nil
-local kitsuneDirIndex = 0
-local kitsuneFrameSkip = 0
-local cachedKitsuneMultiRemote = nil
-local kitsuneRemoteCheckSkip = 0
-
-local function findKitsuneRemote()
-    local function search(parent)
-        if not parent then return nil end
-        local tool = parent:FindFirstChild("Kitsune-Kitsune")
-        return tool and tool:FindFirstChild("LeftClickRemote")
     end
-    return search(Players.LocalPlayer.Character) or search(Players.LocalPlayer:FindFirstChild("Backpack"))
-end
-
-local function startKitsuneMultiAura()
-    if KitsuneMultiAuraConn then KitsuneMultiAuraConn:Disconnect() KitsuneMultiAuraConn = nil end
-    kitsuneFrameSkip = 0
-    kitsuneRemoteCheckSkip = 0
-    cachedKitsuneMultiRemote = nil
-    KitsuneMultiAuraConn = RunService.Heartbeat:Connect(function()
-        if not KitsuneMultiAuraEnabled then KitsuneMultiAuraConn:Disconnect() KitsuneMultiAuraConn = nil return end
-        kitsuneFrameSkip += 1
-        if kitsuneFrameSkip % 3 ~= 0 then return end
-        kitsuneRemoteCheckSkip += 1
-        if kitsuneRemoteCheckSkip >= 120 or not cachedKitsuneMultiRemote then
-            kitsuneRemoteCheckSkip = 0
-            cachedKitsuneMultiRemote = findKitsuneRemote()
-        end
-        local remote = cachedKitsuneMultiRemote
-        if not remote then return end
-        pcall(function()
-            for i = 1, 4 do
-                kitsuneDirIndex = (kitsuneDirIndex % dirCount) + 1
-                remote:FireServer(allDirs[kitsuneDirIndex], 1)
-            end
-            for i = 1, 2 do
-                remote:FireServer(EXTRA_DIR, 2)
-            end
-        end)
-    end)
-end
-
-local function stopKitsuneMultiAura()
-    KitsuneMultiAuraEnabled = false
-    if KitsuneMultiAuraConn then KitsuneMultiAuraConn:Disconnect() KitsuneMultiAuraConn = nil end
-    cachedKitsuneMultiRemote = nil
-end
-
--- ════════════════════════════════════════════════
--- DRAGON M1 AURA (single-dir)
--- ════════════════════════════════════════════════
-local DragonAuraEnabled = false
-local DragonAuraConnection = nil
-
-local function startDragonAura()
-    if DragonAuraConnection then DragonAuraConnection:Disconnect() DragonAuraConnection = nil end
-    local auraArgs = { vector.create(0.12935088574886322, -0, -0.9915988445281982), 1 }
-    DragonAuraConnection = RunService.Heartbeat:Connect(function()
-        if not DragonAuraEnabled then DragonAuraConnection:Disconnect() DragonAuraConnection = nil return end
-        local char = Players.LocalPlayer.Character
-        if char then
-            local model = char:FindFirstChild("Dragon-Dragon")
-            if model then
-                local remote = model:FindFirstChild("LeftClickRemote")
-                if remote then remote:FireServer(unpack(auraArgs)) end
-            end
-        end
-    end)
-end
-
-local function stopDragonAura()
-    DragonAuraEnabled = false
-    if DragonAuraConnection then DragonAuraConnection:Disconnect() DragonAuraConnection = nil end
-end
-
--- ════════════════════════════════════════════════
--- DRAGON MULTI-DIR AURA (Fixxer Upper)
--- ════════════════════════════════════════════════
-local DragonMultiAuraEnabled = false
-local DragonMultiAuraConn = nil
-local dragonDirIndex = 0
-local dragonFrameSkip = 0
-local cachedDragonMultiRemote = nil
-local dragonRemoteCheckSkip = 0
-
-local function findDragonRemote()
-    local function search(parent)
-        if not parent then return nil end
-        local tool = parent:FindFirstChild("Dragon-Dragon")
-        return tool and tool:FindFirstChild("LeftClickRemote")
+    function state.stop()
+        state.enabled = false
+        if state.conn then state.conn:Disconnect() state.conn = nil end
     end
-    return search(Players.LocalPlayer.Character) or search(Players.LocalPlayer:FindFirstChild("Backpack"))
+    return state
 end
 
-local function startDragonMultiAura()
-    if DragonMultiAuraConn then DragonMultiAuraConn:Disconnect() DragonMultiAuraConn = nil end
-    dragonFrameSkip = 0
-    dragonRemoteCheckSkip = 0
-    cachedDragonMultiRemote = nil
-    DragonMultiAuraConn = RunService.Heartbeat:Connect(function()
-        if not DragonMultiAuraEnabled then DragonMultiAuraConn:Disconnect() DragonMultiAuraConn = nil return end
-        dragonFrameSkip += 1
-        if dragonFrameSkip % 3 ~= 0 then return end
-        dragonRemoteCheckSkip += 1
-        if dragonRemoteCheckSkip >= 120 or not cachedDragonMultiRemote then
-            dragonRemoteCheckSkip = 0
-            cachedDragonMultiRemote = findDragonRemote()
-        end
-        local remote = cachedDragonMultiRemote
-        if not remote then return end
-        pcall(function()
-            for i = 1, 4 do
-                dragonDirIndex = (dragonDirIndex % dirCount) + 1
-                remote:FireServer(allDirs[dragonDirIndex], 1)
+local function makeMultiAura(toolName)
+    local state = { enabled = false, conn = nil, dirIndex = 0, frame = 0, remoteSkip = 0, remote = nil }
+    function state.start()
+        if state.conn then state.conn:Disconnect() end
+        state.frame, state.remoteSkip, state.remote = 0, 0, nil
+        state.conn = RunService.Heartbeat:Connect(function()
+            if not state.enabled then state.conn:Disconnect() state.conn = nil return end
+            state.frame += 1
+            if state.frame % 3 ~= 0 then return end
+            state.remoteSkip += 1
+            if state.remoteSkip >= 120 or not state.remote then
+                state.remoteSkip = 0
+                state.remote = findRemote(toolName)
             end
-            for i = 1, 2 do
-                remote:FireServer(EXTRA_DIR, 2)
-            end
+            local r = state.remote
+            if not r then return end
+            pcall(function()
+                for _ = 1, 4 do
+                    state.dirIndex = (state.dirIndex % dirCount) + 1
+                    r:FireServer(allDirs[state.dirIndex], 1)
+                end
+                r:FireServer(EXTRA_DIR, 2)
+                r:FireServer(EXTRA_DIR, 2)
+            end)
         end)
-    end)
-end
-
-local function stopDragonMultiAura()
-    DragonMultiAuraEnabled = false
-    if DragonMultiAuraConn then DragonMultiAuraConn:Disconnect() DragonMultiAuraConn = nil end
-    cachedDragonMultiRemote = nil
-end
-
--- ════════════════════════════════════════════════
--- GAS M1 AURA (single-dir)
--- ════════════════════════════════════════════════
-local GasAuraEnabled = false
-local GasAuraConnection = nil
-
-local function startGasAura()
-    if GasAuraConnection then GasAuraConnection:Disconnect() GasAuraConnection = nil end
-    local auraArgs = { vector.create(0.12935088574886322, -0, -0.9915988445281982), 1 }
-    GasAuraConnection = RunService.Heartbeat:Connect(function()
-        if not GasAuraEnabled then GasAuraConnection:Disconnect() GasAuraConnection = nil return end
-        local char = Players.LocalPlayer.Character
-        if char then
-            local model = char:FindFirstChild("Gas-Gas")
-            if model then
-                local remote = model:FindFirstChild("LeftClickRemote")
-                if remote then remote:FireServer(unpack(auraArgs)) end
-            end
-        end
-    end)
-end
-
-local function stopGasAura()
-    GasAuraEnabled = false
-    if GasAuraConnection then GasAuraConnection:Disconnect() GasAuraConnection = nil end
-end
-
--- ════════════════════════════════════════════════
--- GAS MULTI-DIR AURA (Fixxer Upper)
--- ════════════════════════════════════════════════
-local GasMultiAuraEnabled = false
-local GasMultiAuraConn = nil
-local gasDirIndex = 0
-local gasFrameSkip = 0
-local cachedGasMultiRemote = nil
-local gasRemoteCheckSkip = 0
-
-local function findGasRemote()
-    local function search(parent)
-        if not parent then return nil end
-        local tool = parent:FindFirstChild("Gas-Gas")
-        return tool and tool:FindFirstChild("LeftClickRemote")
     end
-    return search(Players.LocalPlayer.Character) or search(Players.LocalPlayer:FindFirstChild("Backpack"))
-end
-
-local function startGasMultiAura()
-    if GasMultiAuraConn then GasMultiAuraConn:Disconnect() GasMultiAuraConn = nil end
-    gasFrameSkip = 0
-    gasRemoteCheckSkip = 0
-    cachedGasMultiRemote = nil
-    GasMultiAuraConn = RunService.Heartbeat:Connect(function()
-        if not GasMultiAuraEnabled then GasMultiAuraConn:Disconnect() GasMultiAuraConn = nil return end
-        gasFrameSkip += 1
-        if gasFrameSkip % 3 ~= 0 then return end
-        gasRemoteCheckSkip += 1
-        if gasRemoteCheckSkip >= 120 or not cachedGasMultiRemote then
-            gasRemoteCheckSkip = 0
-            cachedGasMultiRemote = findGasRemote()
-        end
-        local remote = cachedGasMultiRemote
-        if not remote then return end
-        pcall(function()
-            for i = 1, 4 do
-                gasDirIndex = (gasDirIndex % dirCount) + 1
-                remote:FireServer(allDirs[gasDirIndex], 1)
-            end
-            for i = 1, 2 do
-                remote:FireServer(EXTRA_DIR, 2)
-            end
-        end)
-    end)
-end
-
-local function stopGasMultiAura()
-    GasMultiAuraEnabled = false
-    if GasMultiAuraConn then GasMultiAuraConn:Disconnect() GasMultiAuraConn = nil end
-    cachedGasMultiRemote = nil
-end
-
--- ════════════════════════════════════════════════
--- BLADE M1 AURA (single-dir)
--- ════════════════════════════════════════════════
-local BladeAuraEnabled = false
-local BladeAuraConnection = nil
-
-local function startBladeAura()
-    if BladeAuraConnection then BladeAuraConnection:Disconnect() BladeAuraConnection = nil end
-    local auraArgs = { vector.create(0.12935088574886322, -0, -0.9915988445281982), 1 }
-    BladeAuraConnection = RunService.Heartbeat:Connect(function()
-        if not BladeAuraEnabled then BladeAuraConnection:Disconnect() BladeAuraConnection = nil return end
-        local char = Players.LocalPlayer.Character
-        if char then
-            local model = char:FindFirstChild("Blade-Blade")
-            if model then
-                local remote = model:FindFirstChild("LeftClickRemote")
-                if remote then remote:FireServer(unpack(auraArgs)) end
-            end
-        end
-    end)
-end
-
-local function stopBladeAura()
-    BladeAuraEnabled = false
-    if BladeAuraConnection then BladeAuraConnection:Disconnect() BladeAuraConnection = nil end
-end
-
--- ════════════════════════════════════════════════
--- BLADE MULTI-DIR AURA (Fixxer Upper)
--- ════════════════════════════════════════════════
-local BladeMultiAuraEnabled = false
-local BladeMultiAuraConn = nil
-local bladeDirIndex = 0
-local bladeFrameSkip = 0
-local cachedBladeMultiRemote = nil
-local bladeRemoteCheckSkip = 0
-
-local function findBladeRemote()
-    local function search(parent)
-        if not parent then return nil end
-        local tool = parent:FindFirstChild("Blade-Blade")
-        return tool and tool:FindFirstChild("LeftClickRemote")
+    function state.stop()
+        state.enabled = false
+        if state.conn then state.conn:Disconnect() state.conn = nil end
+        state.remote = nil
     end
-    return search(Players.LocalPlayer.Character) or search(Players.LocalPlayer:FindFirstChild("Backpack"))
+    return state
 end
 
-local function startBladeMultiAura()
-    if BladeMultiAuraConn then BladeMultiAuraConn:Disconnect() BladeMultiAuraConn = nil end
-    bladeFrameSkip = 0
-    bladeRemoteCheckSkip = 0
-    cachedBladeMultiRemote = nil
-    BladeMultiAuraConn = RunService.Heartbeat:Connect(function()
-        if not BladeMultiAuraEnabled then BladeMultiAuraConn:Disconnect() BladeMultiAuraConn = nil return end
-        bladeFrameSkip += 1
-        if bladeFrameSkip % 3 ~= 0 then return end
-        bladeRemoteCheckSkip += 1
-        if bladeRemoteCheckSkip >= 120 or not cachedBladeMultiRemote then
-            bladeRemoteCheckSkip = 0
-            cachedBladeMultiRemote = findBladeRemote()
-        end
-        local remote = cachedBladeMultiRemote
-        if not remote then return end
-        pcall(function()
-            for i = 1, 4 do
-                bladeDirIndex = (bladeDirIndex % dirCount) + 1
-                remote:FireServer(allDirs[bladeDirIndex], 1)
-            end
-            for i = 1, 2 do
-                remote:FireServer(EXTRA_DIR, 2)
-            end
-        end)
-    end)
-end
-
-local function stopBladeMultiAura()
-    BladeMultiAuraEnabled = false
-    if BladeMultiAuraConn then BladeMultiAuraConn:Disconnect() BladeMultiAuraConn = nil end
-    cachedBladeMultiRemote = nil
-end
+-- Aura instances
+local Auras = {
+    TRex    = { single = makeSingleAura("T-Rex-T-Rex"),    multi = makeMultiAura("T-Rex-T-Rex"),    icon = "🦖" },
+    Kitsune = { single = makeSingleAura("Kitsune-Kitsune"), multi = makeMultiAura("Kitsune-Kitsune"), icon = "🦊" },
+    Dragon  = { single = makeSingleAura("Dragon-Dragon"),   multi = makeMultiAura("Dragon-Dragon"),   icon = "🐲" },
+    Gas     = { single = makeSingleAura("Gas-Gas"),         multi = makeMultiAura("Gas-Gas"),         icon = "☁️" },
+    Blade   = { single = makeSingleAura("Blade-Blade"),     multi = makeMultiAura("Blade-Blade"),     icon = "🗡️" },
+}
 
 -- ════════════════════════════════════════════════
--- T-REX M1 AURA (single-dir)
+-- FLY
 -- ════════════════════════════════════════════════
-local TRexAuraEnabled = false
-local TRexAuraConnection = nil
+local flyEnabled, flySpeed = false, 150
+local flyConn, noclipFlyConn
 
-local function startTRexAura()
-    if TRexAuraConnection then TRexAuraConnection:Disconnect() TRexAuraConnection = nil end
-    local auraArgs = { vector.create(0.12935088574886322, -0, -0.9915988445281982), 1 }
-    TRexAuraConnection = RunService.Heartbeat:Connect(function()
-        if not TRexAuraEnabled then TRexAuraConnection:Disconnect() TRexAuraConnection = nil return end
-        local char = Players.LocalPlayer.Character
-        if char then
-            local model = char:FindFirstChild("T-Rex-T-Rex")
-            if model then
-                local remote = model:FindFirstChild("LeftClickRemote")
-                if remote then remote:FireServer(unpack(auraArgs)) end
-            end
-        end
-    end)
-end
-
-local function stopTRexAura()
-    TRexAuraEnabled = false
-    if TRexAuraConnection then TRexAuraConnection:Disconnect() TRexAuraConnection = nil end
-end
-
--- ════════════════════════════════════════════════
--- KITSUNE M1 AURA (single-dir)
--- ════════════════════════════════════════════════
-local KitsuneAuraEnabled = false
-local KitsuneAuraConnection = nil
-
-local function startKitsuneAura()
-    if KitsuneAuraConnection then KitsuneAuraConnection:Disconnect() KitsuneAuraConnection = nil end
-    local auraArgs = { vector.create(0.12935088574886322, -0, -0.9915988445281982), 1 }
-    KitsuneAuraConnection = RunService.Heartbeat:Connect(function()
-        if not KitsuneAuraEnabled then KitsuneAuraConnection:Disconnect() KitsuneAuraConnection = nil return end
-        local char = Players.LocalPlayer.Character
-        if char then
-            local model = char:FindFirstChild("Kitsune-Kitsune")
-            if model then
-                local remote = model:FindFirstChild("LeftClickRemote")
-                if remote then remote:FireServer(unpack(auraArgs)) end
-            end
-        end
-    end)
-end
-
-local function stopKitsuneAura()
-    KitsuneAuraEnabled = false
-    if KitsuneAuraConnection then KitsuneAuraConnection:Disconnect() KitsuneAuraConnection = nil end
-end
-
--- ════════════════════════════════════════════════
--- FLY FUNCTIONS
--- ════════════════════════════════════════════════
 local function startFly()
     local char = Players.LocalPlayer.Character
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChild("Humanoid")
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChild("Humanoid")
     if not hrp or not hum then return end
     hum.PlatformStand = true
     hrp.AssemblyLinearVelocity = Vector3.zero
-    hrp.AssemblyAngularVelocity = Vector3.zero
-    local cam = workspace.CurrentCamera
     flyConn = RunService.Heartbeat:Connect(function(dt)
-        local chr = Players.LocalPlayer.Character
-        local root = chr and chr:FindFirstChild("HumanoidRootPart")
-        if not root then return end
+        local c = Players.LocalPlayer.Character
+        local r = c and c:FindFirstChild("HumanoidRootPart")
+        if not r then return end
+        local cam = workspace.CurrentCamera
         local move = Vector3.zero
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + cam.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move - cam.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - cam.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + cam.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.yAxis end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-            move = move - Vector3.new(0, 1, 0)
+            move -= Vector3.yAxis
         end
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-        if move.Magnitude > 0 then root.CFrame = root.CFrame + move.Unit * flySpeed * dt end
+        r.AssemblyLinearVelocity = Vector3.zero
+        r.AssemblyAngularVelocity = Vector3.zero
+        if move.Magnitude > 0 then r.CFrame += move.Unit * flySpeed * dt end
     end)
     noclipFlyConn = RunService.Stepped:Connect(function()
-        local chr = Players.LocalPlayer.Character
-        if not chr then return end
-        for _, part in pairs(chr:GetDescendants()) do
-            if part:IsA("BasePart") then part.CanCollide = false end
+        local c = Players.LocalPlayer.Character
+        if not c then return end
+        for _, p in c:GetDescendants() do
+            if p:IsA("BasePart") then p.CanCollide = false end
         end
     end)
 end
@@ -538,90 +152,58 @@ local function stopFly()
     if flyConn then flyConn:Disconnect() flyConn = nil end
     if noclipFlyConn then noclipFlyConn:Disconnect() noclipFlyConn = nil end
     local char = Players.LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChild("Humanoid")
-        if hum then hum.PlatformStand = false end
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then part.CanCollide = true end
-        end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then hrp.AssemblyLinearVelocity = Vector3.zero end
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then hum.PlatformStand = false end
+    for _, p in char:GetDescendants() do
+        if p:IsA("BasePart") then p.CanCollide = true end
     end
+    local r = char:FindFirstChild("HumanoidRootPart")
+    if r then r.AssemblyLinearVelocity = Vector3.zero end
 end
 
 -- ════════════════════════════════════════════════
 -- NET / REGISTER HIT
 -- ════════════════════════════════════════════════
-local Net, RegisterHit, RegisterAttack
+local RegisterHit, RegisterAttack
 pcall(function()
-    Net = ReplicatedStorage:WaitForChild("Modules", 5):WaitForChild("Net", 5)
+    local Net = ReplicatedStorage:WaitForChild("Modules", 5):WaitForChild("Net", 5)
     RegisterHit = Net:FindFirstChild("RE/RegisterHit")
     RegisterAttack = Net:FindFirstChild("RE/RegisterAttack")
 end)
-
-if not RegisterHit or not RegisterAttack then
-    warn("Net module not found - Fast Attack may not work properly")
-    RegisterHit = {FireServer = function() end}
-    RegisterAttack = {FireServer = function() end}
-end
-
-local NoClipEnabled = false
-local NoClipConnection = nil
-local OriginalCanCollide = {}
-
-local DeathBarrierDisabled = false
-local DeathBarrierParts = {}
-local DeathBarrierConnections = {}
-
-local DEATH_BARRIER_PATTERNS = {
-    "water", "ocean", "sea",
-    "death", "kill", "damage",
-    "barrier", "border", "bounds",
-    "lava", "void", "outofbounds",
-    "poisondamage", "acidwater"
-}
-
-local enemiesFolder = workspace:FindFirstChild("Enemies")
-local cachedPlayers = {}
-local cachedNPCs = {}
-local lastPlayerCacheUpdate = 0
-local lastNPCCacheUpdate = 0
-local cacheUpdateInterval = 2
+RegisterHit = RegisterHit or { FireServer = function() end }
+RegisterAttack = RegisterAttack or { FireServer = function() end }
 
 -- ════════════════════════════════════════════════
 -- KILL AURA
 -- ════════════════════════════════════════════════
 local KillAuraEnabled = false
-local KillAuraThread = nil
+local KillAuraThread
 local KILL_AURA_RANGE = 5000
 local MELEE_TOOL_NAME = "FightingStyle"
-local killAuraTargetsTable = {}
 
 local function getEquippedTool()
     local char = Players.LocalPlayer.Character
     if not char then return nil end
-    for _, v in ipairs(char:GetChildren()) do
+    for _, v in char:GetChildren() do
         if v:IsA("Tool") then return v end
     end
-    return nil
 end
 
-local function findTool(toolName)
+local function findTool(name)
     local char = Players.LocalPlayer.Character
     if char then
-        local t = char:FindFirstChild(toolName)
+        local t = char:FindFirstChild(name)
         if t and t:IsA("Tool") then return t, true end
     end
-    local bp = Players.LocalPlayer:FindFirstChild("Backpack")
+    local bp = player:FindFirstChild("Backpack")
     if bp then
-        local t = bp:FindFirstChild(toolName)
+        local t = bp:FindFirstChild(name)
         if t and t:IsA("Tool") then return t, false end
     end
-    return nil, false
 end
 
-local function killAuraAttackTargets(targets, count)
-    if not RegisterHit or not RegisterAttack then return end
+local function killAuraAttack(targets, count)
     if count == 0 then return end
     local allTargets = {}
     for i = 1, count do
@@ -629,7 +211,7 @@ local function killAuraAttackTargets(targets, count)
         if head then table.insert(allTargets, {targets[i], head}) end
     end
     if #allTargets == 0 then return end
-    local previousTool = getEquippedTool()
+    local prevTool = getEquippedTool()
     local meleeTool, alreadyEquipped = findTool(MELEE_TOOL_NAME)
     if meleeTool and not alreadyEquipped then
         if humanoid then humanoid:EquipTool(meleeTool) end
@@ -638,14 +220,15 @@ local function killAuraAttackTargets(targets, count)
     pcall(function() RegisterAttack:FireServer(0) end)
     pcall(function() RegisterHit:FireServer(allTargets[1][2], allTargets) end)
     if meleeTool and not alreadyEquipped then
-        if previousTool then
-            if humanoid then humanoid:EquipTool(previousTool) end
+        if prevTool then
+            if humanoid then humanoid:EquipTool(prevTool) end
         else
             if humanoid then humanoid:UnequipTools() end
         end
     end
 end
 
+local killTargets = {}
 local function startKillAura()
     KillAuraEnabled = true
     KillAuraThread = task.spawn(function()
@@ -658,27 +241,25 @@ local function startKillAura()
             local count = 0
             local ef = workspace:FindFirstChild("Enemies")
             if ef then
-                for _, npc in pairs(ef:GetChildren()) do
-                    local npcHum = npc:FindFirstChild("Humanoid")
+                for _, npc in ef:GetChildren() do
+                    local h = npc:FindFirstChild("Humanoid")
                     local hrp = npc:FindFirstChild("HumanoidRootPart")
-                    if npcHum and hrp and npcHum.Health > 0 and
-                       (hrp.Position - myPos).Magnitude <= KILL_AURA_RANGE then
-                        count += 1; killAuraTargetsTable[count] = npc
+                    if h and hrp and h.Health > 0 and (hrp.Position - myPos).Magnitude <= KILL_AURA_RANGE then
+                        count += 1; killTargets[count] = npc
                     end
                 end
             end
-            for _, p in pairs(Players:GetPlayers()) do
-                if p ~= Players.LocalPlayer and p.Character then
-                    local pHum = p.Character:FindFirstChild("Humanoid")
+            for _, p in Players:GetPlayers() do
+                if p ~= player and p.Character then
+                    local h = p.Character:FindFirstChild("Humanoid")
                     local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-                    if pHum and hrp and pHum.Health > 0 and
-                       (hrp.Position - myPos).Magnitude <= KILL_AURA_RANGE then
-                        count += 1; killAuraTargetsTable[count] = p.Character
+                    if h and hrp and h.Health > 0 and (hrp.Position - myPos).Magnitude <= KILL_AURA_RANGE then
+                        count += 1; killTargets[count] = p.Character
                     end
                 end
             end
-            for i = count + 1, #killAuraTargetsTable do killAuraTargetsTable[i] = nil end
-            if count > 0 then killAuraAttackTargets(killAuraTargetsTable, count) end
+            for i = count + 1, #killTargets do killTargets[i] = nil end
+            if count > 0 then killAuraAttack(killTargets, count) end
         end
     end)
 end
@@ -688,335 +269,202 @@ local function stopKillAura()
     if KillAuraThread then task.cancel(KillAuraThread) KillAuraThread = nil end
 end
 
-local function updatePlayerCache()
-    local currentTime = tick()
-    if currentTime - lastPlayerCacheUpdate < cacheUpdateInterval then return cachedPlayers end
-    table.clear(cachedPlayers)
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= player and p.Character then table.insert(cachedPlayers, p) end
-    end
-    lastPlayerCacheUpdate = currentTime
-    return cachedPlayers
-end
+-- ════════════════════════════════════════════════
+-- FAST ATTACK
+-- ════════════════════════════════════════════════
+local FastAttackEnabled, FastAttackRange = false, 2000
+local FastAttackConnection
 
-local function updateNPCCache()
-    local currentTime = tick()
-    if currentTime - lastNPCCacheUpdate < cacheUpdateInterval then return cachedNPCs end
-    table.clear(cachedNPCs)
-    if enemiesFolder then
-        for _, npc in ipairs(enemiesFolder:GetChildren()) do
-            local npcHumanoid = npc:FindFirstChild("Humanoid")
-            if npcHumanoid and npcHumanoid.Health > 0 then table.insert(cachedNPCs, npc) end
-        end
-    end
-    lastNPCCacheUpdate = currentTime
-    return cachedNPCs
-end
-
-local function toggleBringAllNPCs(value)
-    BringAllNPCsEnabled = value
-    if BringAllNPCsEnabled then
-        if BringAllNPCsConnection then BringAllNPCsConnection:Disconnect() end
-        BringAllNPCsConnection = RunService.Heartbeat:Connect(function()
-            pcall(function()
-                if not humanoidRootPart or not BringAllNPCsEnabled then return end
-                local bringPos = humanoidRootPart.Position + Vector3.new(0, 5, 0)
-                local ef = workspace:FindFirstChild("Enemies")
-                if ef then
-                    for _, npc in pairs(ef:GetChildren()) do
-                        local npcHumanoid = npc:FindFirstChild("Humanoid")
-                        local npcHRP = npc:FindFirstChild("HumanoidRootPart")
-                        if npcHumanoid and npcHRP and npcHumanoid.Health > 0 then
-                            pcall(function()
-                                npcHRP:SetNetworkOwner(player)
-                                npcHRP.CFrame = CFrame.new(bringPos)
-                                npcHRP.Velocity = Vector3.new(0, 0, 0)
-                                npcHRP.CanCollide = false
-                            end)
-                        end
-                    end
-                end
-            end)
-        end)
-        Rayfield:Notify({ Title = "Continuous Bring: ON", Content = "All NPCs will continuously teleport to you", Duration = 3, Image = 4483362458 })
-    else
-        if BringAllNPCsConnection then BringAllNPCsConnection:Disconnect() BringAllNPCsConnection = nil end
-        Rayfield:Notify({ Title = "Continuous Bring: OFF", Content = "NPCs will no longer auto-teleport", Duration = 2, Image = 4483362458 })
-    end
-end
-
-local function toggleNoClip(value)
-    NoClipEnabled = value
-    if NoClipEnabled then
-        if character then
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then OriginalCanCollide[part] = part.CanCollide part.CanCollide = false end
-            end
-        end
-        NoClipConnection = RunService.Stepped:Connect(function()
-            if character and NoClipEnabled then
-                for _, part in ipairs(character:GetDescendants()) do
-                    if part:IsA("BasePart") then part.CanCollide = false end
-                end
-            end
-        end)
-        Rayfield:Notify({ Title = "No Clip Enabled", Content = "You can now walk through walls", Duration = 2, Image = 4483362458 })
-    else
-        if NoClipConnection then NoClipConnection:Disconnect() NoClipConnection = nil end
-        if character then
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") and OriginalCanCollide[part] ~= nil then part.CanCollide = OriginalCanCollide[part] end
-            end
-        end
-        table.clear(OriginalCanCollide)
-        Rayfield:Notify({ Title = "No Clip Disabled", Content = "Collision restored to normal", Duration = 2, Image = 4483362458 })
-    end
-end
-
-local function isDeathBarrier(part)
-    if not part:IsA("BasePart") then return false end
-    local name = part.Name:lower()
-    for _, pattern in ipairs(DEATH_BARRIER_PATTERNS) do if name:find(pattern) then return true end end
-    if part.Transparency >= 0.95 and not part.CanCollide then
-        for _, child in ipairs(part:GetChildren()) do
-            if child:IsA("Script") or child:IsA("LocalScript") then
-                local childName = child.Name:lower()
-                for _, pattern in ipairs(DEATH_BARRIER_PATTERNS) do if childName:find(pattern) then return true end end
-            end
-        end
-    end
-    if part.Parent and part.Parent.Name then
-        local parentName = part.Parent.Name:lower()
-        for _, pattern in ipairs(DEATH_BARRIER_PATTERNS) do if parentName:find(pattern) then return true end end
-    end
-    if part.Material == Enum.Material.Water then return true end
-    return false
-end
-
-local function disableDeathBarrier(part)
-    if not part or not part.Parent then return end
-    for _, data in ipairs(DeathBarrierParts) do if data.Part == part then return end end
-    local originalData = { CanCollide = part.CanCollide, CanTouch = part.CanTouch, Transparency = part.Transparency, Material = part.Material, Part = part }
-    table.insert(DeathBarrierParts, originalData)
-    part.CanCollide = false
-    part.CanTouch = false
-    for _, child in ipairs(part:GetChildren()) do
-        if (child:IsA("Script") or child:IsA("LocalScript")) and child.Enabled then child.Enabled = false end
-    end
-end
-
-local function enableDeathBarrier(originalData)
-    local part = originalData.Part
-    if part and part.Parent then
-        part.CanCollide = originalData.CanCollide
-        part.CanTouch = originalData.CanTouch
-        part.Transparency = originalData.Transparency
-        for _, child in ipairs(part:GetChildren()) do
-            if (child:IsA("Script") or child:IsA("LocalScript")) and not child.Enabled then child.Enabled = true end
-        end
-    end
-end
-
-local function scanForDeathBarriers()
-    local count = 0
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if DeathBarrierDisabled and isDeathBarrier(obj) then disableDeathBarrier(obj) count = count + 1 end
-    end
-    return count
-end
-
-local function toggleDeathBarrier(value)
-    DeathBarrierDisabled = value
-    if DeathBarrierDisabled then
-        table.clear(DeathBarrierParts)
-        for _, conn in ipairs(DeathBarrierConnections) do if conn and conn.Disconnect then conn:Disconnect() end end
-        table.clear(DeathBarrierConnections)
-        local count = scanForDeathBarriers()
-        local descendantConn = workspace.DescendantAdded:Connect(function(obj)
-            if DeathBarrierDisabled then task.wait(0.1) if isDeathBarrier(obj) then disableDeathBarrier(obj) end end
-        end)
-        table.insert(DeathBarrierConnections, descendantConn)
-        local rescanConn = task.spawn(function()
-            while DeathBarrierDisabled do task.wait(5) scanForDeathBarriers() end
-        end)
-        table.insert(DeathBarrierConnections, {Disconnect = function() task.cancel(rescanConn) end})
-        if character then
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    local touchConn = part.Touched:Connect(function(hit)
-                        if DeathBarrierDisabled and isDeathBarrier(hit) then if humanoid then humanoid.Health = humanoid.Health end end
-                    end)
-                    table.insert(DeathBarrierConnections, touchConn)
-                end
-            end
-        end
-        Rayfield:Notify({ Title = "Death Barriers Disabled", Content = "Found and disabled " .. count .. " death barriers", Duration = 3, Image = 4483362458 })
-    else
-        for _, originalData in ipairs(DeathBarrierParts) do enableDeathBarrier(originalData) end
-        table.clear(DeathBarrierParts)
-        for _, conn in ipairs(DeathBarrierConnections) do if conn and conn.Disconnect then conn:Disconnect() end end
-        table.clear(DeathBarrierConnections)
-        Rayfield:Notify({ Title = "Death Barriers Enabled", Content = "Death barriers restored to normal", Duration = 2, Image = 4483362458 })
-    end
-end
-
-local function fastAttackTargets(targets)
-    if not FastAttackEnabled then return end
+local function fastAttack(targets)
+    if not FastAttackEnabled or #targets == 0 or not humanoidRootPart then return end
     pcall(function()
-        if not targets or #targets == 0 or not humanoidRootPart then return end
-        local allTargets = {}
-        local primaryTarget = nil
-        for _, targetChar in pairs(targets) do
-            local head = targetChar:FindFirstChild("Head")
-            if head then table.insert(allTargets, {targetChar, head}) if not primaryTarget then primaryTarget = head end end
-        end
-        if #allTargets == 0 or not primaryTarget then return end
-        RegisterAttack:FireServer(0)
-        RegisterHit:FireServer(primaryTarget, allTargets)
-    end)
-end
-
-local function teleportAttackBypass(targets)
-    pcall(function()
-        if not targets or #targets == 0 or not humanoidRootPart then return end
-        local allTargets = {}
-        local primaryTarget = nil
-        local primaryHRP = nil
-        for _, targetChar in pairs(targets) do
-            local head = targetChar:FindFirstChild("Head")
-            local hrp = targetChar:FindFirstChild("HumanoidRootPart")
-            if head and hrp then
-                table.insert(allTargets, {targetChar, head})
-                if not primaryTarget then primaryTarget = head primaryHRP = hrp end
+        local allTargets, primaryHead = {}, nil
+        for _, tc in targets do
+            local head = tc:FindFirstChild("Head")
+            if head then
+                table.insert(allTargets, {tc, head})
+                primaryHead = primaryHead or head
             end
         end
-        if #allTargets == 0 or not primaryHRP then return end
-        local originalCFrame = humanoidRootPart.CFrame
-        local originalTargetCFrame = nil
-        if BringMobsEnabled then
-            pcall(function() primaryHRP:SetNetworkOwner(player) end)
-            local bringPos = humanoidRootPart.Position + Vector3.new(0, 5, 0)
-            originalTargetCFrame = primaryHRP.CFrame
-            primaryHRP.CFrame = CFrame.new(bringPos)
-            primaryHRP.Velocity = Vector3.new(0, 0, 0)
-            primaryHRP.CanCollide = false
-            humanoidRootPart.CFrame = CFrame.new(bringPos + Vector3.new(0, -3, 0))
-        else
-            originalTargetCFrame = primaryHRP.CFrame
-            humanoidRootPart.CFrame = CFrame.new(primaryHRP.Position + Vector3.new(0, 3, 0))
-        end
-        task.wait(0.01)
-        RegisterAttack:FireServer(0)
-        RegisterHit:FireServer(primaryTarget, allTargets)
-        task.wait(0.02)
-        humanoidRootPart.CFrame = originalCFrame
-        if BringMobsEnabled and originalTargetCFrame then
-            pcall(function() if primaryHRP and primaryHRP.Parent then primaryHRP.CFrame = originalTargetCFrame end end)
+        if primaryHead then
+            RegisterAttack:FireServer(0)
+            RegisterHit:FireServer(primaryHead, allTargets)
         end
     end)
 end
 
-local function toggleTeleportAttack(value)
-    TeleportAttackEnabled = value
-    if TeleportAttackEnabled then
-        if TeleportAttackConnection then task.cancel(TeleportAttackConnection) end
-        TeleportAttackConnection = RunService.Heartbeat:Connect(function()
-            local myChar = Players.LocalPlayer.Character
-            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-            if not myHRP then return end
-            local targetsInRange = {}
-            for _, p in pairs(Players:GetPlayers()) do
-                if p ~= Players.LocalPlayer and p.Character then
-                    local h = p.Character:FindFirstChild("Humanoid")
-                    local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-                    if h and hrp and h.Health > 0 and (hrp.Position - myHRP.Position).Magnitude <= FastAttackRange then
-                        table.insert(targetsInRange, p.Character)
-                    end
-                end
+local function getTargetsInRange(range)
+    local myHRP = humanoidRootPart
+    if not myHRP then return {} end
+    local out = {}
+    local ef = workspace:FindFirstChild("Enemies")
+    if ef then
+        for _, npc in ef:GetChildren() do
+            local h = npc:FindFirstChild("Humanoid")
+            local hrp = npc:FindFirstChild("HumanoidRootPart")
+            if h and hrp and h.Health > 0 and (hrp.Position - myHRP.Position).Magnitude <= range then
+                table.insert(out, npc)
             end
-            if #targetsInRange > 0 then teleportAttackBypass(targetsInRange) end
-        end)
-    else
-        if TeleportAttackConnection then TeleportAttackConnection:Disconnect() TeleportAttackConnection = nil end
+        end
     end
+    for _, p in Players:GetPlayers() do
+        if p ~= player and p.Character then
+            local h = p.Character:FindFirstChild("Humanoid")
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if h and hrp and h.Health > 0 and (hrp.Position - myHRP.Position).Magnitude <= range then
+                table.insert(out, p.Character)
+            end
+        end
+    end
+    return out
 end
 
 local function toggleFastAttack(value)
     FastAttackEnabled = value
-    if FastAttackEnabled then
+    if value then
         if FastAttackConnection then FastAttackConnection:Disconnect() end
         FastAttackConnection = RunService.Heartbeat:Connect(function()
-            local myChar = Players.LocalPlayer.Character
-            local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
-            if not myHRP then return end
-            local targetsInRange = {}
-            local ef = workspace:FindFirstChild("Enemies")
-            if ef then
-                for _, npc in pairs(ef:GetChildren()) do
-                    local h = npc:FindFirstChild("Humanoid")
-                    local hrp = npc:FindFirstChild("HumanoidRootPart")
-                    if h and hrp and h.Health > 0 and (hrp.Position - myHRP.Position).Magnitude <= FastAttackRange then
-                        table.insert(targetsInRange, npc)
-                    end
-                end
-            end
-            for _, p in pairs(Players:GetPlayers()) do
-                if p ~= Players.LocalPlayer and p.Character then
-                    local h = p.Character:FindFirstChild("Humanoid")
-                    local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-                    if h and hrp and h.Health > 0 and (hrp.Position - myHRP.Position).Magnitude <= FastAttackRange then
-                        table.insert(targetsInRange, p.Character)
-                    end
-                end
-            end
-            if #targetsInRange > 0 then fastAttackTargets(targetsInRange) end
+            local t = getTargetsInRange(FastAttackRange)
+            if #t > 0 then fastAttack(t) end
         end)
     else
         if FastAttackConnection then FastAttackConnection:Disconnect() FastAttackConnection = nil end
     end
 end
 
+-- ════════════════════════════════════════════════
+-- HITBOX EXTENDER
+-- ════════════════════════════════════════════════
+local HitboxEnabled, HitboxSize, HitboxTransparency = false, 20, 0.5
+local OriginalSizes = {}
+
 local function extendHitboxes(value)
     HitboxEnabled = value
-    if HitboxEnabled then
-        local newSize = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
-        updatePlayerCache()
-        for _, p in ipairs(cachedPlayers) do
-            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                if not OriginalSizes[hrp] then OriginalSizes[hrp] = hrp.Size end
-                hrp.Size = newSize hrp.Transparency = HitboxTransparency hrp.CanCollide = false
+    if value then
+        local newSize = Vector3.one * HitboxSize
+        for _, p in Players:GetPlayers() do
+            if p ~= player and p.Character then
+                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    OriginalSizes[hrp] = OriginalSizes[hrp] or hrp.Size
+                    hrp.Size = newSize hrp.Transparency = HitboxTransparency hrp.CanCollide = false
+                end
             end
         end
-        updateNPCCache()
-        for _, npc in ipairs(cachedNPCs) do
-            local hrp = npc:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                if not OriginalSizes[hrp] then OriginalSizes[hrp] = hrp.Size end
-                hrp.Size = newSize hrp.Transparency = HitboxTransparency hrp.CanCollide = false
+        local ef = workspace:FindFirstChild("Enemies")
+        if ef then
+            for _, npc in ef:GetChildren() do
+                local hrp = npc:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    OriginalSizes[hrp] = OriginalSizes[hrp] or hrp.Size
+                    hrp.Size = newSize hrp.Transparency = HitboxTransparency hrp.CanCollide = false
+                end
             end
         end
     else
-        for hrp, originalSize in pairs(OriginalSizes) do
-            if hrp and hrp.Parent then hrp.Size = originalSize hrp.Transparency = 1 hrp.CanCollide = false end
+        for hrp, sz in OriginalSizes do
+            if hrp and hrp.Parent then hrp.Size = sz hrp.Transparency = 1 hrp.CanCollide = false end
         end
         table.clear(OriginalSizes)
     end
 end
 
+-- ════════════════════════════════════════════════
+-- DEATH BARRIER DISABLER
+-- ════════════════════════════════════════════════
+local DeathBarrierDisabled = false
+local DeathBarrierParts = {}
+local DeathBarrierConnections = {}
+local DEATH_PATTERNS = {"water","ocean","sea","death","kill","damage","barrier","border","bounds","lava","void","outofbounds","poisondamage","acidwater"}
+
+local function isDeathBarrier(part)
+    if not part:IsA("BasePart") then return false end
+    local name = part.Name:lower()
+    for _, p in DEATH_PATTERNS do if name:find(p) then return true end end
+    if part.Parent then
+        local pname = part.Parent.Name:lower()
+        for _, p in DEATH_PATTERNS do if pname:find(p) then return true end end
+    end
+    return part.Material == Enum.Material.Water
+end
+
+local function disableBarrier(part)
+    if not part or not part.Parent then return end
+    for _, d in DeathBarrierParts do if d.Part == part then return end end
+    table.insert(DeathBarrierParts, { Part = part, CanCollide = part.CanCollide, CanTouch = part.CanTouch })
+    part.CanCollide = false
+    part.CanTouch = false
+end
+
+local function toggleDeathBarrier(value)
+    DeathBarrierDisabled = value
+    if value then
+        table.clear(DeathBarrierParts)
+        for _, c in DeathBarrierConnections do if c and c.Disconnect then c:Disconnect() end end
+        table.clear(DeathBarrierConnections)
+        for _, obj in workspace:GetDescendants() do
+            if isDeathBarrier(obj) then disableBarrier(obj) end
+        end
+        table.insert(DeathBarrierConnections, workspace.DescendantAdded:Connect(function(obj)
+            if DeathBarrierDisabled then task.wait(0.1) if isDeathBarrier(obj) then disableBarrier(obj) end end
+        end))
+        local t = task.spawn(function()
+            while DeathBarrierDisabled do task.wait(5)
+                for _, obj in workspace:GetDescendants() do
+                    if isDeathBarrier(obj) then disableBarrier(obj) end
+                end
+            end
+        end)
+        table.insert(DeathBarrierConnections, { Disconnect = function() task.cancel(t) end })
+    else
+        for _, d in DeathBarrierParts do
+            if d.Part and d.Part.Parent then d.Part.CanCollide = d.CanCollide d.Part.CanTouch = d.CanTouch end
+        end
+        table.clear(DeathBarrierParts)
+        for _, c in DeathBarrierConnections do if c and c.Disconnect then c:Disconnect() end end
+        table.clear(DeathBarrierConnections)
+    end
+end
+
+-- ════════════════════════════════════════════════
+-- SPEED
+-- ════════════════════════════════════════════════
+local SpeedEnabled, SpeedValue = false, 1
+local SpeedConnection
+
+local function setSpeed(value)
+    SpeedEnabled = value
+    if value then
+        if SpeedConnection then SpeedConnection:Disconnect() end
+        SpeedConnection = RunService.Heartbeat:Connect(function()
+            if humanoid and humanoidRootPart and humanoid.Health > 0 then
+                local dir = humanoid.MoveDirection
+                if dir.Magnitude > 0 then humanoidRootPart.CFrame += dir * SpeedValue end
+            end
+        end)
+    else
+        if SpeedConnection then SpeedConnection:Disconnect() SpeedConnection = nil end
+    end
+end
+
+-- ════════════════════════════════════════════════
+-- AUTO TP ON LOW HEALTH
+-- ════════════════════════════════════════════════
+local AutoTPEnabled, HealthThreshold, TPCooldown = false, 30, false
+local AutoTPConnection
+
 local function toggleAutoTP(value)
     AutoTPEnabled = value
-    if AutoTPEnabled then
+    if value then
         AutoTPConnection = RunService.Heartbeat:Connect(function()
-            if humanoid and humanoidRootPart and humanoid.Health > 0 then
-                local healthPercent = (humanoid.Health / humanoid.MaxHealth) * 100
-                if healthPercent <= HealthThreshold and not TPCooldown then
-                    local currentPos = humanoidRootPart.Position
-                    humanoidRootPart.CFrame = CFrame.new(currentPos.X, 50000000, currentPos.Z)
-                    TPCooldown = true
-                    Rayfield:Notify({ Title = "Low Health!", Content = "Teleported to safety at " .. math.floor(healthPercent) .. "% HP", Duration = 3, Image = 4483362458 })
-                    task.delay(10, function() TPCooldown = false end)
-                end
+            if not humanoid or not humanoidRootPart or humanoid.Health <= 0 then return end
+            local pct = (humanoid.Health / humanoid.MaxHealth) * 100
+            if pct <= HealthThreshold and not TPCooldown then
+                local pos = humanoidRootPart.Position
+                humanoidRootPart.CFrame = CFrame.new(pos.X, 5e7, pos.Z)
+                TPCooldown = true
+                task.delay(10, function() TPCooldown = false end)
+                Rayfield:Notify({ Title = "Low Health!", Content = "Teleported at "..math.floor(pct).."%", Duration = 3, Image = 4483362458 })
             end
         end)
     else
@@ -1025,81 +473,254 @@ local function toggleAutoTP(value)
     end
 end
 
-local function setSpeed(value)
-    SpeedEnabled = value
-    if SpeedEnabled then
-        if SpeedConnection then SpeedConnection:Disconnect() end
-        SpeedConnection = RunService.Heartbeat:Connect(function()
-            if humanoid and humanoidRootPart and humanoid.Health > 0 then
-                local moveDir = humanoid.MoveDirection
-                if moveDir.Magnitude > 0 then humanoidRootPart.CFrame = humanoidRootPart.CFrame + (moveDir * SpeedValue) end
-            end
-        end)
+-- ════════════════════════════════════════════════
+-- TELEPORT UTILS
+-- ════════════════════════════════════════════════
+local isTeleportedToSky, originalPosition = false, nil
+
+local function toggleTeleportToSky()
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if isTeleportedToSky then
+        if originalPosition then
+            local params = RaycastParams.new()
+            params.FilterDescendantsInstances = { char }
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            local result = workspace:Raycast(Vector3.new(originalPosition.X, 5e7, originalPosition.Z), Vector3.new(0, -2e4, 0), params)
+            hrp.CFrame = result
+                and CFrame.new(result.Position + Vector3.new(0, hrp.Size.Y / 2 + 0.5, 0))
+                or CFrame.new(originalPosition)
+        end
+        isTeleportedToSky = false
     else
-        if SpeedConnection then SpeedConnection:Disconnect() SpeedConnection = nil end
+        originalPosition = hrp.Position
+        hrp.CFrame = CFrame.new(0, -2e8, 0)
+        isTeleportedToSky = true
     end
 end
 
-local orbitSelectedName = nil
-local spectateSelectedName = nil
-local tpSelectedName = nil
+local function teleportToBarcode()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-200, -200, -200) end
+end
+
+-- ════════════════════════════════════════════════
+-- ORBIT & INSTANT TP
+-- ════════════════════════════════════════════════
+local orbiting = false
+local orbitSpeed, orbitRadius, xOffset, yOffset, xScale, orbitAngle = 1, 3, 0, 0, 3, 0
+local orbitConnection
+local selectedPlayer, currentTarget
+local orbitSelectedName, spectateSelectedName, tpSelectedName
+
+-- ════════════════════════════════════════════════
+-- PREDICTION ENGINE
+-- Weighted least-squares over rolling 8-sample window.
+-- Zero per-frame allocations. Teleport detection, jerk guard,
+-- confidence-weighted kinematic extrapolation.
+-- ════════════════════════════════════════════════
+local orbitPredictionEnabled = false
+local orbitPredictionStrength = 0.2
+local orbitAutoPrediction = true
+
+local PRED_WINDOW   = 8
+local PRED_TP_DIST  = 80     -- stud jump → flush
+local PRED_JERK_MAX = 2000   -- studs/s³ → confidence penalty
+local PRED_DECAY    = 0.75   -- geometric sample weight
+
+-- Pre-allocated ring buffer: reuse slot tables, never alloc per-frame
+local predBuf = {}
+for i = 1, PRED_WINDOW do predBuf[i] = { px=0, py=0, pz=0, t=0 } end
+local predBufN    = 0   -- valid entries
+local predBufHead = 0   -- newest slot index (1-based)
+
+-- State
+local kPx,kPy,kPz   = 0,0,0
+local kVx,kVy,kVz   = 0,0,0
+local kAx,kAy,kAz   = 0,0,0
+local kReady  = false
+local predConf = 0
+
+local function predReset()
+    predBufN, predBufHead = 0, 0
+    kPx,kPy,kPz = 0,0,0
+    kVx,kVy,kVz = 0,0,0
+    kAx,kAy,kAz = 0,0,0
+    kReady, predConf = false, 0
+end
+
+local function predFitWindow()
+    local n = predBufN
+    if n < 2 then return end
+
+    -- Accumulate weighted normal-equation sums in one pass.
+    -- Model: pos(s) = a0 + a1*s + a2*s²  where s = t - t_newest (≤0)
+    -- We only need a1 (velocity) and a2 (½ accel), so we solve the 3×3 system.
+    local head = predBufHead
+    local tn   = predBuf[head].t
+
+    local sw0,sw1,sw2,sw3,sw4 = 0,0,0,0,0
+    local srpx,srpy,srpz = 0,0,0       -- Σw·p
+    local srspx,srspy,srspz = 0,0,0    -- Σw·s·p
+    local srs2px,srs2py,srs2pz = 0,0,0 -- Σw·s²·p
+
+    local w = 1.0  -- starts at DECAY^0 = 1 for newest, multiplied each step
+    for i = 0, n-1 do
+        local slot = predBuf[((head - 1 - i) % PRED_WINDOW) + 1]
+        local s  = slot.t - tn   -- ≤ 0
+        local s2 = s * s
+        sw0 += w;       sw1 += w*s;  sw2 += w*s2
+        sw3 += w*s2*s;  sw4 += w*s2*s2
+        local wpx,wpy,wpz = w*slot.px, w*slot.py, w*slot.pz
+        srpx  += wpx;      srpy  += wpy;      srpz  += wpz
+        srspx += wpx*s;    srspy += wpy*s;    srspz += wpz*s   -- w*s*p = (w*p)*s
+        srs2px+= wpx*s2;   srs2py+= wpy*s2;  srs2pz+= wpz*s2
+        w *= PRED_DECAY
+    end
+
+    -- Solve 3×3 via Cramer. Matrix M is the same for all axes → compute once.
+    -- M = [[sw0,sw1,sw2],[sw1,sw2,sw3],[sw2,sw3,sw4]]
+    local c00 = sw2*sw4 - sw3*sw3
+    local c01 = sw3*sw2 - sw1*sw4   -- = -(sw1*sw4 - sw3*sw2)
+    local c02 = sw1*sw3 - sw2*sw2
+    local det = sw0*c00 + sw1*c01 + sw2*c02
+    if math.abs(det) < 1e-9 then return end
+    local inv = 1 / det
+
+    -- Cofactors for rows 1 and 2 (velocity and accel columns)
+    local c10 = sw3*sw2 - sw1*sw4   -- same as c01 by symmetry... let's be explicit
+    local c11 = sw0*sw4 - sw2*sw2
+    local c12 = sw1*sw2 - sw0*sw3
+    local c20 = sw1*sw3 - sw2*sw2
+    local c21 = sw2*sw1 - sw0*sw3   -- = -(sw0*sw3 - sw1*sw2)
+    local c22 = sw0*sw2 - sw1*sw1
+
+    local function solveVelAccel(b0, b1, b2)
+        local v = (b0*c10 + b1*c11 + b2*c12) * inv
+        local a = (b0*c20 + b1*c21 + b2*c22) * inv
+        return v, a * 2   -- a2 coeff × 2 = acceleration
+    end
+
+    local fvx,fax = solveVelAccel(srpx, srspx, srs2px)
+    local fvy,fay = solveVelAccel(srpy, srspy, srs2py)
+    local fvz,faz = solveVelAccel(srpz, srspz, srs2pz)
+
+    -- Jerk guard
+    local jdx,jdy,jdz = fax-kAx, fay-kAy, faz-kAz
+    local dtSample = math.max(n >= 2 and (tn - predBuf[((head-2)%PRED_WINDOW)+1].t) or 1, 1e-4)
+    local jerk = math.sqrt(jdx*jdx + jdy*jdy + jdz*jdz) / dtSample
+    if jerk > PRED_JERK_MAX then predConf = math.max(predConf - 0.4, 0) end
+
+    -- Blend into state
+    local trust = math.clamp(n / PRED_WINDOW, 0.2, 1.0)
+    local tv, ta = trust * 0.6, trust * 0.3
+    kVx = kVx + (fvx - kVx) * tv;  kVy = kVy + (fvy - kVy) * tv;  kVz = kVz + (fvz - kVz) * tv
+    kAx = kAx + (fax - kAx) * ta;  kAy = kAy + (fay - kAy) * ta;  kAz = kAz + (faz - kAz) * ta
+    kPx = predBuf[head].px;  kPy = predBuf[head].py;  kPz = predBuf[head].pz
+    kReady = true
+    predConf = math.min(predConf + 0.15, 1.0)
+end
+
+local function predUpdate(pos)
+    local now = tick()
+    local px,py,pz = pos.X, pos.Y, pos.Z
+
+    -- Teleport detection against newest slot
+    if predBufN > 0 then
+        local s = predBuf[predBufHead]
+        local dx,dy,dz = px-s.px, py-s.py, pz-s.pz
+        if dx*dx + dy*dy + dz*dz > PRED_TP_DIST*PRED_TP_DIST then predReset() end
+    end
+
+    -- Overwrite next ring slot in-place (zero alloc)
+    predBufHead = (predBufHead % PRED_WINDOW) + 1
+    local slot = predBuf[predBufHead]
+    slot.px, slot.py, slot.pz, slot.t = px, py, pz, now
+    predBufN = math.min(predBufN + 1, PRED_WINDOW)
+
+    predFitWindow()
+end
+
+local function predExtrapolate(ahead)
+    if not kReady then return Vector3.new(kPx,kPy,kPz) end
+    local c  = predConf
+    local ac = math.max(1 - ahead * 1.2, 0) * c
+    local h2 = 0.5 * ahead * ahead
+    return Vector3.new(
+        kPx + kVx*ahead*c + kAx*h2*ac,
+        kPy + kVy*ahead*c + kAy*h2*ac,
+        kPz + kVz*ahead*c + kAz*h2*ac
+    )
+end
+
+local function predLookAhead()
+    if not orbitAutoPrediction then return orbitPredictionStrength end
+    local spd = math.sqrt(kVx*kVx + kVy*kVy + kVz*kVz)
+    local acc = math.sqrt(kAx*kAx + kAy*kAy + kAz*kAz)
+    return math.clamp((math.clamp(spd/300,0,1) + math.clamp(acc/400,0,0.4)) * predConf, 0, 1.4)
+end
+
+local instantTPEnabled = false
+local instantTPConnection
+
+local autoResetEnabled = false
+local autoResetThread
 
 local function getPlayerByName(name)
-    if not name then return nil end
-    return Players:FindFirstChild(name)
+    return name and Players:FindFirstChild(name)
 end
 
 local function startOrbit()
-    local targetPlayer = getPlayerByName(orbitSelectedName)
-    if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        Rayfield:Notify({ Title = "No Target", Content = "Select a player from the dropdown first", Duration = 2, Image = 4483362458 })
+    local tp = getPlayerByName(orbitSelectedName)
+    if not tp or not tp.Character or not tp.Character:FindFirstChild("HumanoidRootPart") then
+        Rayfield:Notify({ Title = "No Target", Content = "Select a player first", Duration = 2, Image = 4483362458 })
         return false
     end
     if orbitConnection then orbitConnection:Disconnect() orbitConnection = nil end
     orbiting = true
-    selectedPlayer = targetPlayer
-    currentTarget = targetPlayer.Character.HumanoidRootPart
+    selectedPlayer = tp
+    currentTarget = tp.Character.HumanoidRootPart
     orbitAngle = 0
-    Rayfield:Notify({ Title = "Orbiting: ON", Content = "Orbiting " .. targetPlayer.Name, Duration = 2, Image = 4483362458 })
-    orbitConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        if not character or not humanoidRootPart or not humanoidRootPart.Parent then
-            orbiting = false if orbitConnection then orbitConnection:Disconnect() orbitConnection = nil end return
-        end
-        if not currentTarget or not currentTarget.Parent or not selectedPlayer.Parent then
-            orbiting = false selectedPlayer = nil currentTarget = nil
-            if orbitConnection then orbitConnection:Disconnect() orbitConnection = nil end
-            if character:FindFirstChild("Humanoid") then camera.CameraSubject = character.Humanoid end
-            Rayfield:Notify({ Title = "Orbit Stopped", Content = "Target left or died", Duration = 2, Image = 4483362458 })
-            return
-        end
-        local targetHumanoid = currentTarget.Parent:FindFirstChild("Humanoid")
-        if not targetHumanoid or targetHumanoid.Health <= 0 then
-            orbiting = false selectedPlayer = nil currentTarget = nil
-            if orbitConnection then orbitConnection:Disconnect() orbitConnection = nil end
-            if character:FindFirstChild("Humanoid") then camera.CameraSubject = character.Humanoid end
-            Rayfield:Notify({ Title = "Orbit Stopped", Content = "Target died", Duration = 2, Image = 4483362458 })
-            return
-        end
-        orbitAngle = orbitAngle + (orbitSpeed * deltaTime)
+    Rayfield:Notify({ Title = "Orbiting: ON", Content = "Orbiting "..tp.Name, Duration = 2, Image = 4483362458 })
 
-        -- Prediction: estimate target's future position based on velocity
+    orbitConnection = RunService.Heartbeat:Connect(function(dt)
+        local myChar = Players.LocalPlayer.Character
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not myHRP then return end
+        character, humanoidRootPart = myChar, myHRP
+
+        -- Handle target respawn: re-grab HRP if it went nil
+        if not currentTarget or not currentTarget.Parent then
+            if selectedPlayer and selectedPlayer.Parent then
+                local newChar = selectedPlayer.Character
+                currentTarget = newChar and newChar:FindFirstChild("HumanoidRootPart")
+                if not currentTarget then return end
+            else
+                orbiting = false selectedPlayer = nil currentTarget = nil
+                orbitConnection:Disconnect() orbitConnection = nil
+                Rayfield:Notify({ Title = "Orbit Stopped", Content = "Target left", Duration = 2, Image = 4483362458 })
+                return
+            end
+        end
+
+        local targetHum = currentTarget.Parent:FindFirstChild("Humanoid")
+        if not targetHum or targetHum.Health <= 0 then return end -- target dead, wait for respawn
+
+        orbitAngle += orbitSpeed * dt
+
         local targetPos = currentTarget.Position
         if orbitPredictionEnabled then
-            if lastTargetPosition then
-                -- Smooth the velocity estimate with lerp to avoid jitter
-                local rawVelocity = (targetPos - lastTargetPosition) / deltaTime
-                predictedVelocity = predictedVelocity:Lerp(rawVelocity, 0.3)
+            predUpdate(targetPos)
+            if kReady then
+                targetPos = predExtrapolate(predLookAhead())
             end
-            lastTargetPosition = targetPos
-            targetPos = targetPos + predictedVelocity * orbitPredictionStrength
         else
-            lastTargetPosition = nil
-            predictedVelocity = Vector3.new(0, 0, 0)
+            predReset()
         end
 
         local offset = Vector3.new(math.cos(orbitAngle) * orbitRadius * xScale + xOffset, yOffset, math.sin(orbitAngle) * orbitRadius)
-        humanoidRootPart.CFrame = CFrame.lookAt(targetPos + offset, targetPos)
-        camera.CameraSubject = targetHumanoid
+        myHRP.CFrame = CFrame.lookAt(targetPos + offset, targetPos)
+        camera.CameraSubject = targetHum
     end)
     return true
 end
@@ -1108,58 +729,62 @@ local function stopOrbit()
     orbiting = false selectedPlayer = nil currentTarget = nil orbitAngle = 0
     if orbitConnection then orbitConnection:Disconnect() orbitConnection = nil end
     if character and character:FindFirstChild("Humanoid") then camera.CameraSubject = character.Humanoid end
-    Rayfield:Notify({ Title = "Orbiting: OFF", Content = "No longer orbiting", Duration = 2, Image = 4483362458 })
+    Rayfield:Notify({ Title = "Orbiting: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
 end
 
 local function spectatePlayer()
-    local targetPlayer = getPlayerByName(spectateSelectedName)
-    if not targetPlayer or not targetPlayer.Character then
-        Rayfield:Notify({ Title = "No Target", Content = "Select a player from the dropdown first", Duration = 2, Image = 4483362458 })
+    local tp = getPlayerByName(spectateSelectedName)
+    if not tp or not tp.Character then
+        Rayfield:Notify({ Title = "No Target", Content = "Select a player first", Duration = 2, Image = 4483362458 })
         return
     end
-    local hum = targetPlayer.Character:FindFirstChild("Humanoid")
+    local hum = tp.Character:FindFirstChild("Humanoid")
     if hum then
         camera.CameraSubject = hum
-        Rayfield:Notify({ Title = "Spectating", Content = targetPlayer.Name, Duration = 2, Image = 4483362458 })
+        Rayfield:Notify({ Title = "Spectating", Content = tp.Name, Duration = 2, Image = 4483362458 })
     end
 end
 
 local function unspectate()
     if character and character:FindFirstChild("Humanoid") then
         camera.CameraSubject = character.Humanoid
-        Rayfield:Notify({ Title = "Unspectated", Content = "Camera restored to your character", Duration = 2, Image = 4483362458 })
+        Rayfield:Notify({ Title = "Unspectated", Content = "Camera restored", Duration = 2, Image = 4483362458 })
     end
 end
 
--- Instant TP Toggle Variables
-local instantTPEnabled = false
-local instantTPConnection = nil
-
 local function startInstantTP()
-    local targetPlayer = getPlayerByName(tpSelectedName)
-    if not targetPlayer or not targetPlayer.Character then
-        Rayfield:Notify({ Title = "No Target", Content = "Select a player from the dropdown first", Duration = 2, Image = 4483362458 })
+    local tp = getPlayerByName(tpSelectedName)
+    if not tp or not tp.Character then
+        Rayfield:Notify({ Title = "No Target", Content = "Select a player first", Duration = 2, Image = 4483362458 })
         return false
     end
     if instantTPConnection then instantTPConnection:Disconnect() instantTPConnection = nil end
     instantTPEnabled = true
-    Rayfield:Notify({ Title = "Instant TP: ON", Content = "Continuously teleporting to " .. targetPlayer.Name, Duration = 2, Image = 4483362458 })
+    Rayfield:Notify({ Title = "Instant TP: ON", Content = "Following "..tp.Name, Duration = 2, Image = 4483362458 })
+
     instantTPConnection = RunService.Heartbeat:Connect(function()
-        if not instantTPEnabled then
-            instantTPConnection:Disconnect() instantTPConnection = nil return
-        end
-        local tp = getPlayerByName(tpSelectedName)
-        if not tp or not tp.Character or not tp.Parent then
+        if not instantTPEnabled then instantTPConnection:Disconnect() instantTPConnection = nil return end
+        local target = getPlayerByName(tpSelectedName)
+        if not target or not target.Parent then
             instantTPEnabled = false
-            if instantTPConnection then instantTPConnection:Disconnect() instantTPConnection = nil end
+            instantTPConnection:Disconnect() instantTPConnection = nil
             if Rayfield.Flags["InstantTPToggle"] then Rayfield.Flags["InstantTPToggle"]:Set(false) end
-            Rayfield:Notify({ Title = "Instant TP: OFF", Content = "Target left the game", Duration = 2, Image = 4483362458 })
+            Rayfield:Notify({ Title = "Instant TP: OFF", Content = "Target left", Duration = 2, Image = 4483362458 })
             return
         end
-        local hrp = tp.Character:FindFirstChild("HumanoidRootPart")
-        if hrp and humanoidRootPart then
-            humanoidRootPart.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 3, 0))
+        if not target.Character then return end
+        local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+        if not tHRP then return end
+        local myChar = Players.LocalPlayer.Character
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if not myHRP then return end
+        humanoidRootPart = myHRP
+
+        local tpPos = tHRP.Position
+        if orbitPredictionEnabled and kReady then
+            tpPos = predExtrapolate(predLookAhead())
         end
+        myHRP.CFrame = CFrame.new(tpPos + Vector3.new(0, 3, 0))
     end)
     return true
 end
@@ -1167,101 +792,54 @@ end
 local function stopInstantTP()
     instantTPEnabled = false
     if instantTPConnection then instantTPConnection:Disconnect() instantTPConnection = nil end
-    Rayfield:Notify({ Title = "Instant TP: OFF", Content = "Stopped following target", Duration = 2, Image = 4483362458 })
+    Rayfield:Notify({ Title = "Instant TP: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
 end
 
-local function toggleTeleportToSky()
-    local char = player.Character
-    if not char then
-        Rayfield:Notify({ Title = "No Character", Content = "Character not found", Duration = 2, Image = 4483362458 })
-        return
-    end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        Rayfield:Notify({ Title = "No HumanoidRootPart", Content = "Character not fully loaded", Duration = 2, Image = 4483362458 })
-        return
-    end
-    humanoidRootPart = hrp
-    if isTeleportedToSky then
-        if originalPosition then
-            local castOrigin = Vector3.new(originalPosition.X, 50000000, originalPosition.Z)
-            local castDir = Vector3.new(0, -20000, 0)
-            local rayParams = RaycastParams.new()
-            rayParams.FilterDescendantsInstances = {char}
-            rayParams.FilterType = Enum.RaycastFilterType.Exclude
-            local result = workspace:Raycast(castOrigin, castDir, rayParams)
-            if result then
-                hrp.CFrame = CFrame.new(result.Position + Vector3.new(0, hrp.Size.Y / 2 + 0.5, 0))
-                Rayfield:Notify({ Title = "Returned", Content = "Landed on ground at Y: " .. math.floor(result.Position.Y), Duration = 2, Image = 4483362458 })
-            else
-                hrp.CFrame = CFrame.new(originalPosition)
-                Rayfield:Notify({ Title = "Returned", Content = "Restored to original position", Duration = 2, Image = 4483362458 })
-            end
-        end
-        isTeleportedToSky = false
-    else
-        originalPosition = hrp.Position
-        hrp.CFrame = CFrame.new(0, -200000000, 0)
-        isTeleportedToSky = true
-        Rayfield:Notify({ Title = "Teleport Into Ground", Content = "Teleported underground", Duration = 2, Image = 4483362458 })
-    end
-end
-
-local function teleportToBarcode()
-    if not humanoidRootPart or not humanoidRootPart.Parent then return end
-    humanoidRootPart.CFrame = CFrame.new(-200, -200, -200)
-end
+-- ════════════════════════════════════════════════
+-- CHARACTER ADDED
+-- ════════════════════════════════════════════════
+local enemiesFolder = workspace:FindFirstChild("Enemies")
 
 local function onCharacterAdded(char)
     character = char
     humanoidRootPart = char:WaitForChild("HumanoidRootPart")
     humanoid = char:WaitForChild("Humanoid")
-    isTeleportedToSky = false originalPosition = nil
-    if orbiting then
-        orbiting = false selectedPlayer = nil currentTarget = nil orbitAngle = 0
+    isTeleportedToSky, originalPosition = false, nil
+
+    -- Orbit and instantTP are self-healing (read live HRP each frame), nothing to restart.
+    -- Clean up orbit only if the target player actually left.
+    if orbiting and (not selectedPlayer or not selectedPlayer.Parent) then
+        orbiting = false selectedPlayer = nil currentTarget = nil
         if orbitConnection then orbitConnection:Disconnect() orbitConnection = nil end
     end
-    if TRexAuraEnabled then stopTRexAura() TRexAuraEnabled = true startTRexAura() end
-    if KitsuneAuraEnabled then stopKitsuneAura() KitsuneAuraEnabled = true startKitsuneAura() end
-    if DragonAuraEnabled then stopDragonAura() DragonAuraEnabled = true startDragonAura() end
-    if GasAuraEnabled then stopGasAura() GasAuraEnabled = true startGasAura() end
-    if BladeAuraEnabled then stopBladeAura() BladeAuraEnabled = true startBladeAura() end
+
+    -- Restart instantTP after respawn if it was active
+    if instantTPEnabled and tpSelectedName then
+        if instantTPConnection then instantTPConnection:Disconnect() instantTPConnection = nil end
+        instantTPEnabled = false
+        startInstantTP()
+    end
+
     if KillAuraEnabled then stopKillAura() task.wait(0.2) startKillAura() end
-    if TRexMultiAuraEnabled then stopTRexMultiAura() TRexMultiAuraEnabled = true startTRexMultiAura() end
-    if KitsuneMultiAuraEnabled then stopKitsuneMultiAura() KitsuneMultiAuraEnabled = true startKitsuneMultiAura() end
-    if DragonMultiAuraEnabled then stopDragonMultiAura() DragonMultiAuraEnabled = true startDragonMultiAura() end
-    if GasMultiAuraEnabled then stopGasMultiAura() GasMultiAuraEnabled = true startGasMultiAura() end
-    if BladeMultiAuraEnabled then stopBladeMultiAura() BladeMultiAuraEnabled = true startBladeMultiAura() end
     if flyEnabled then stopFly() task.wait(0.5) startFly() end
-    if NoClipEnabled then
-        task.wait(0.1)
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then OriginalCanCollide[part] = part.CanCollide part.CanCollide = false end
-        end
+
+    -- Restart all auras
+    for _, aura in Auras do
+        if aura.single.enabled then aura.single.stop() aura.single.enabled = true aura.single.start() end
+        if aura.multi.enabled  then aura.multi.stop()  aura.multi.enabled  = true aura.multi.start()  end
     end
-    if DeathBarrierDisabled then
-        task.wait(0.1)
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                local touchConn = part.Touched:Connect(function(hit)
-                    if DeathBarrierDisabled and isDeathBarrier(hit) then if humanoid then humanoid.Health = humanoid.Health end end
-                end)
-                table.insert(DeathBarrierConnections, touchConn)
-            end
-        end
-    end
+
     camera.CameraSubject = humanoid
 end
 
 if player.Character then onCharacterAdded(player.Character) end
 player.CharacterAdded:Connect(onCharacterAdded)
-
 workspace.ChildAdded:Connect(function(child)
     if child.Name == "Enemies" then enemiesFolder = child end
 end)
 
 -- ════════════════════════════════════════════════
--- CREATE RAYFIELD WINDOW
+-- RAYFIELD UI
 -- ════════════════════════════════════════════════
 local Window = Rayfield:CreateWindow({
     Name = "tuff 67 zurxxot owns NA",
@@ -1272,420 +850,289 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false
 })
 
--- ════════════════════════════════════════════════
 -- COMBAT TAB
--- ════════════════════════════════════════════════
 local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
 
-CombatTab:CreateSection("🦖 T-Rex M1 Aura")
-CombatTab:CreateToggle({
-    Name = "Enable T-Rex M1 Aura",
-    CurrentValue = false,
-    Flag = "TRexAuraToggle",
-    Callback = function(Value)
-        TRexAuraEnabled = Value
-        if TRexAuraEnabled then
-            startTRexAura()
-            Rayfield:Notify({ Title = "🦖 T-Rex Aura: ON", Content = "Auto clicking LeftClickRemote every frame", Duration = 3, Image = 4483362458 })
-        else
-            stopTRexAura()
-            Rayfield:Notify({ Title = "T-Rex Aura: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
+-- Generic aura UI builder
+local auraOrder = {
+    { key = "TRex",    label = "T-Rex",   icon = "🦖" },
+    { key = "Kitsune", label = "Kitsune", icon = "🦊" },
+    { key = "Dragon",  label = "Dragon",  icon = "🐲" },
+    { key = "Gas",     label = "Gas",     icon = "☁️" },
+    { key = "Blade",   label = "Blade",   icon = "🗡️" },
+}
+for _, info in auraOrder do
+    local aura = Auras[info.key]
+    CombatTab:CreateSection(info.icon.." "..info.label.." Aura")
+    CombatTab:CreateToggle({ Name = "M1 Aura", CurrentValue = false, Flag = info.key.."AuraSingle",
+        Callback = function(v)
+            aura.single.enabled = v
+            if v then aura.single.start() else aura.single.stop() end
         end
-    end
-})
-
-CombatTab:CreateSection("🦖 T-Rex Fixxer Upper Aura")
-CombatTab:CreateLabel("Fires in multiple directions across 3 scales — optimized for low lag.")
-CombatTab:CreateToggle({
-    Name = "Enable T-Rex Multi-Dir Aura",
-    CurrentValue = false,
-    Flag = "TRexMultiAuraToggle",
-    Callback = function(Value)
-        TRexMultiAuraEnabled = Value
-        if TRexMultiAuraEnabled then
-            startTRexMultiAura()
-            Rayfield:Notify({ Title = "🦖 T-Rex Fixxer Upper: ON", Content = "Firing every 3rd frame, reduced calls", Duration = 3, Image = 4483362458 })
-        else
-            stopTRexMultiAura()
-            Rayfield:Notify({ Title = "T-Rex Fixxer Upper: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
+    })
+    CombatTab:CreateToggle({ Name = "Fixxer Upper (Multi-Dir)", CurrentValue = false, Flag = info.key.."AuraMulti",
+        Callback = function(v)
+            aura.multi.enabled = v
+            if v then aura.multi.start() else aura.multi.stop() end
         end
-    end
-})
-
-CombatTab:CreateSection("🦊 Kitsune M1 Aura")
-CombatTab:CreateToggle({
-    Name = "Enable Kitsune M1 Aura",
-    CurrentValue = false,
-    Flag = "KitsuneAuraToggle",
-    Callback = function(Value)
-        KitsuneAuraEnabled = Value
-        if KitsuneAuraEnabled then
-            startKitsuneAura()
-            Rayfield:Notify({ Title = "🦊 Kitsune Aura: ON", Content = "Auto clicking LeftClickRemote every frame", Duration = 3, Image = 4483362458 })
-        else
-            stopKitsuneAura()
-            Rayfield:Notify({ Title = "Kitsune Aura: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
-        end
-    end
-})
-
-CombatTab:CreateSection("🦊 Kitsune Fixxer Upper Aura")
-CombatTab:CreateLabel("Fires in multiple directions across 3 scales — optimized for low lag.")
-CombatTab:CreateToggle({
-    Name = "Enable Kitsune Multi-Dir Aura",
-    CurrentValue = false,
-    Flag = "KitsuneMultiAuraToggle",
-    Callback = function(Value)
-        KitsuneMultiAuraEnabled = Value
-        if KitsuneMultiAuraEnabled then
-            startKitsuneMultiAura()
-            Rayfield:Notify({ Title = "🦊 Kitsune Fixxer Upper: ON", Content = "Firing every 3rd frame, reduced calls", Duration = 3, Image = 4483362458 })
-        else
-            stopKitsuneMultiAura()
-            Rayfield:Notify({ Title = "Kitsune Fixxer Upper: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
-        end
-    end
-})
-
-CombatTab:CreateSection("🐲 Dragon M1 Aura")
-CombatTab:CreateToggle({
-    Name = "Enable Dragon M1 Aura",
-    CurrentValue = false,
-    Flag = "DragonAuraToggle",
-    Callback = function(Value)
-        DragonAuraEnabled = Value
-        if DragonAuraEnabled then
-            startDragonAura()
-            Rayfield:Notify({ Title = "🐲 Dragon Aura: ON", Content = "Auto clicking LeftClickRemote every frame", Duration = 3, Image = 4483362458 })
-        else
-            stopDragonAura()
-            Rayfield:Notify({ Title = "Dragon Aura: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
-        end
-    end
-})
-
-CombatTab:CreateSection("🐲 Dragon Fixxer Upper Aura")
-CombatTab:CreateLabel("Fires in multiple directions across 3 scales — optimized for low lag.")
-CombatTab:CreateToggle({
-    Name = "Enable Dragon Multi-Dir Aura",
-    CurrentValue = false,
-    Flag = "DragonMultiAuraToggle",
-    Callback = function(Value)
-        DragonMultiAuraEnabled = Value
-        if DragonMultiAuraEnabled then
-            startDragonMultiAura()
-            Rayfield:Notify({ Title = "🐲 Dragon Fixxer Upper: ON", Content = "Firing every 3rd frame, reduced calls", Duration = 3, Image = 4483362458 })
-        else
-            stopDragonMultiAura()
-            Rayfield:Notify({ Title = "Dragon Fixxer Upper: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
-        end
-    end
-})
-
-CombatTab:CreateSection("☁️ Gas M1 Aura")
-CombatTab:CreateToggle({
-    Name = "Enable Gas M1 Aura",
-    CurrentValue = false,
-    Flag = "GasAuraToggle",
-    Callback = function(Value)
-        GasAuraEnabled = Value
-        if GasAuraEnabled then
-            startGasAura()
-            Rayfield:Notify({ Title = "☁️ Gas Aura: ON", Content = "Auto clicking LeftClickRemote every frame", Duration = 3, Image = 4483362458 })
-        else
-            stopGasAura()
-            Rayfield:Notify({ Title = "Gas Aura: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
-        end
-    end
-})
-
-CombatTab:CreateSection("☁️ Gas Fixxer Upper Aura")
-CombatTab:CreateLabel("Fires in multiple directions across 3 scales — optimized for low lag.")
-CombatTab:CreateToggle({
-    Name = "Enable Gas Multi-Dir Aura",
-    CurrentValue = false,
-    Flag = "GasMultiAuraToggle",
-    Callback = function(Value)
-        GasMultiAuraEnabled = Value
-        if GasMultiAuraEnabled then
-            startGasMultiAura()
-            Rayfield:Notify({ Title = "☁️ Gas Fixxer Upper: ON", Content = "Firing every 3rd frame, reduced calls", Duration = 3, Image = 4483362458 })
-        else
-            stopGasMultiAura()
-            Rayfield:Notify({ Title = "Gas Fixxer Upper: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
-        end
-    end
-})
-
-CombatTab:CreateSection("🗡️ Blade M1 Aura")
-CombatTab:CreateToggle({
-    Name = "Enable Blade M1 Aura",
-    CurrentValue = false,
-    Flag = "BladeAuraToggle",
-    Callback = function(Value)
-        BladeAuraEnabled = Value
-        if BladeAuraEnabled then
-            startBladeAura()
-            Rayfield:Notify({ Title = "🗡️ Blade Aura: ON", Content = "Auto clicking LeftClickRemote every frame", Duration = 3, Image = 4483362458 })
-        else
-            stopBladeAura()
-            Rayfield:Notify({ Title = "Blade Aura: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
-        end
-    end
-})
-
-CombatTab:CreateSection("🗡️ Blade Fixxer Upper Aura")
-CombatTab:CreateLabel("Fires in multiple directions across 3 scales — optimized for low lag.")
-CombatTab:CreateToggle({
-    Name = "Enable Blade Multi-Dir Aura",
-    CurrentValue = false,
-    Flag = "BladeMultiAuraToggle",
-    Callback = function(Value)
-        BladeMultiAuraEnabled = Value
-        if BladeMultiAuraEnabled then
-            startBladeMultiAura()
-            Rayfield:Notify({ Title = "🗡️ Blade Fixxer Upper: ON", Content = "Firing every 3rd frame, reduced calls", Duration = 3, Image = 4483362458 })
-        else
-            stopBladeMultiAura()
-            Rayfield:Notify({ Title = "Blade Fixxer Upper: OFF", Content = "Aura stopped", Duration = 2, Image = 4483362458 })
-        end
-    end
-})
+    })
+end
 
 CombatTab:CreateSection("⚡ Kill Aura")
-CombatTab:CreateToggle({
-    Name = "Enable Kill Aura",
-    CurrentValue = false,
-    Flag = "KillAuraToggle",
-    Callback = function(Value)
-        if Value then
-            startKillAura()
-            Rayfield:Notify({ Title = "⚡ Kill Aura: ON", Content = "Attacking all targets within " .. KILL_AURA_RANGE .. " studs", Duration = 3, Image = 4483362458 })
-        else
-            stopKillAura()
-            Rayfield:Notify({ Title = "Kill Aura: OFF", Content = "Kill aura stopped", Duration = 2, Image = 4483362458 })
-        end
+CombatTab:CreateToggle({ Name = "Enable Kill Aura", CurrentValue = false, Flag = "KillAuraToggle",
+    Callback = function(v)
+        if v then startKillAura() else stopKillAura() end
     end
 })
-CombatTab:CreateSlider({
-    Name = "Kill Aura Range",
-    Range = {100, 10000},
-    Increment = 100,
-    Suffix = " studs",
-    CurrentValue = 5000,
-    Flag = "KillAuraRange",
-    Callback = function(Value) KILL_AURA_RANGE = Value end
+CombatTab:CreateSlider({ Name = "Kill Aura Range", Range = {100,10000}, Increment = 100, Suffix = " studs", CurrentValue = 5000, Flag = "KillAuraRange",
+    Callback = function(v) KILL_AURA_RANGE = v end
 })
 
 CombatTab:CreateSection("Fast Attack")
-CombatTab:CreateToggle({ Name = "Enable Fast Attack", CurrentValue = false, Flag = "FastAttackToggle", Callback = function(Value) toggleFastAttack(Value) end })
-CombatTab:CreateSlider({ Name = "Attack Range", Range = {100, 5000}, Increment = 100, Suffix = " studs", CurrentValue = 2000, Flag = "FastAttackRange", Callback = function(Value) FastAttackRange = Value end })
+CombatTab:CreateToggle({ Name = "Enable Fast Attack", CurrentValue = false, Flag = "FastAttackToggle",
+    Callback = function(v) toggleFastAttack(v) end
+})
+CombatTab:CreateSlider({ Name = "Attack Range", Range = {100,5000}, Increment = 100, Suffix = " studs", CurrentValue = 2000, Flag = "FastAttackRange",
+    Callback = function(v) FastAttackRange = v end
+})
 
-CombatTab:CreateSection("Teleport Attack")
-CombatTab:CreateToggle({ Name = "Enable Teleport Attack (Players Only)", CurrentValue = false, Flag = "TeleportAttackToggle", Callback = function(Value) toggleTeleportAttack(Value) end })
-CombatTab:CreateToggle({ Name = "Bring Mobs/Players to You (TP Attack)", CurrentValue = false, Flag = "BringMobsToggle", Callback = function(Value) BringMobsEnabled = Value Rayfield:Notify({ Title = Value and "Bring Mode: ON" or "Bring Mode: OFF", Content = Value and "Targets will teleport to you" or "You will teleport to targets", Duration = 2, Image = 4483362458 }) end })
-
-CombatTab:CreateSection("Manual Teleport Controls")
-CombatTab:CreateToggle({ Name = "Continuously Bring All NPCs to Me", CurrentValue = false, Flag = "BringAllNPCsToggle", Callback = function(Value) toggleBringAllNPCs(Value) end })
-CombatTab:CreateButton({ Name = "Bring All NPCs to Me (One-Time)", Callback = function()
-    pcall(function()
-        if not humanoidRootPart then return end
-        local count = 0
-        local bringPos = humanoidRootPart.Position + Vector3.new(0, 5, 0)
-        local ef = workspace:FindFirstChild("Enemies")
-        if ef then for _, npc in pairs(ef:GetChildren()) do local h = npc:FindFirstChild("Humanoid") local hrp = npc:FindFirstChild("HumanoidRootPart") if h and hrp and h.Health > 0 then pcall(function() hrp:SetNetworkOwner(player) hrp.CFrame = CFrame.new(bringPos) hrp.Velocity = Vector3.new(0,0,0) hrp.CanCollide = false count = count + 1 end) end end end
-        Rayfield:Notify({ Title = "NPCs Brought!", Content = "Teleported " .. count .. " NPCs to you", Duration = 3, Image = 4483362458 })
-    end)
-end })
-CombatTab:CreateButton({ Name = "Teleport Me to Nearest NPC", Callback = function()
-    pcall(function()
-        if not humanoidRootPart then return end
-        local nearestNPC, nearestDistance = nil, math.huge
-        local ef = workspace:FindFirstChild("Enemies")
-        if ef then for _, npc in pairs(ef:GetChildren()) do local h = npc:FindFirstChild("Humanoid") local hrp = npc:FindFirstChild("HumanoidRootPart") if h and hrp and h.Health > 0 then local d = (hrp.Position - humanoidRootPart.Position).Magnitude if d < nearestDistance then nearestDistance = d nearestNPC = hrp end end end end
-        if nearestNPC then humanoidRootPart.CFrame = CFrame.new(nearestNPC.Position + Vector3.new(0, 3, 0)) Rayfield:Notify({ Title = "Teleported!", Content = "Teleported to NPC (" .. math.floor(nearestDistance) .. " studs away)", Duration = 2, Image = 4483362458 })
-        else Rayfield:Notify({ Title = "No NPCs Found", Content = "No alive NPCs nearby", Duration = 2, Image = 4483362458 }) end
-    end)
+CombatTab:CreateSection("NPC Controls")
+CombatTab:CreateButton({ Name = "TP to Nearest NPC", Callback = function()
+    if not humanoidRootPart then return end
+    local nearest, nearestDist = nil, math.huge
+    local ef = workspace:FindFirstChild("Enemies")
+    if ef then
+        for _, npc in ef:GetChildren() do
+            local h = npc:FindFirstChild("Humanoid")
+            local hrp = npc:FindFirstChild("HumanoidRootPart")
+            if h and hrp and h.Health > 0 then
+                local d = (hrp.Position - humanoidRootPart.Position).Magnitude
+                if d < nearestDist then nearestDist = d nearest = hrp end
+            end
+        end
+    end
+    if nearest then
+        humanoidRootPart.CFrame = CFrame.new(nearest.Position + Vector3.new(0, 3, 0))
+        Rayfield:Notify({ Title = "Teleported!", Content = math.floor(nearestDist).." studs", Duration = 2, Image = 4483362458 })
+    else
+        Rayfield:Notify({ Title = "No NPCs Found", Content = "None alive nearby", Duration = 2, Image = 4483362458 })
+    end
 end })
 
 CombatTab:CreateSection("Hitbox Extender")
-CombatTab:CreateToggle({ Name = "Extend Hitboxes", CurrentValue = false, Flag = "HitboxToggle", Callback = function(Value) extendHitboxes(Value) end })
-CombatTab:CreateSlider({ Name = "Hitbox Size", Range = {5, 1000}, Increment = 10, Suffix = " studs", CurrentValue = 20, Flag = "HitboxSize", Callback = function(Value) HitboxSize = Value if HitboxEnabled then extendHitboxes(false) extendHitboxes(true) end end })
-CombatTab:CreateSlider({ Name = "Hitbox Transparency", Range = {0, 1}, Increment = 0.1, Suffix = "", CurrentValue = 0.5, Flag = "HitboxTransparency", Callback = function(Value) HitboxTransparency = Value if HitboxEnabled then extendHitboxes(false) extendHitboxes(true) end end })
+CombatTab:CreateToggle({ Name = "Extend Hitboxes", CurrentValue = false, Flag = "HitboxToggle",
+    Callback = function(v) extendHitboxes(v) end
+})
+CombatTab:CreateSlider({ Name = "Hitbox Size", Range = {5,1000}, Increment = 10, Suffix = " studs", CurrentValue = 20, Flag = "HitboxSize",
+    Callback = function(v) HitboxSize = v if HitboxEnabled then extendHitboxes(false) extendHitboxes(true) end end
+})
+CombatTab:CreateSlider({ Name = "Hitbox Transparency", Range = {0,1}, Increment = 0.1, CurrentValue = 0.5, Flag = "HitboxTransparency",
+    Callback = function(v) HitboxTransparency = v if HitboxEnabled then extendHitboxes(false) extendHitboxes(true) end end
+})
 
--- ════════════════════════════════════════════════
 -- MOVEMENT TAB
--- ════════════════════════════════════════════════
 local MovementTab = Window:CreateTab("🚀 Movement", 4483362458)
 
 MovementTab:CreateSection("Teleports")
 MovementTab:CreateButton({ Name = "Teleport Into Ground (Toggle)", Callback = function() toggleTeleportToSky() end })
 MovementTab:CreateButton({ Name = "Teleport to Barcode Twin", Callback = function() teleportToBarcode() end })
 
-MovementTab:CreateSection("Auto Teleport on Low Health")
-MovementTab:CreateToggle({ Name = "Auto TP When Low", CurrentValue = false, Flag = "AutoTPToggle", Callback = function(Value) toggleAutoTP(Value) end })
-MovementTab:CreateSlider({ Name = "Health Threshold", Range = {10, 90}, Increment = 5, Suffix = "%", CurrentValue = 30, Flag = "HealthThreshold", Callback = function(Value) HealthThreshold = Value end })
+MovementTab:CreateSection("Auto TP on Low Health")
+MovementTab:CreateToggle({ Name = "Auto TP When Low", CurrentValue = false, Flag = "AutoTPToggle",
+    Callback = function(v) toggleAutoTP(v) end
+})
+MovementTab:CreateSlider({ Name = "Health Threshold", Range = {10,90}, Increment = 5, Suffix = "%", CurrentValue = 30, Flag = "HealthThreshold",
+    Callback = function(v) HealthThreshold = v end
+})
 
 MovementTab:CreateSection("Speed")
-MovementTab:CreateToggle({ Name = "Speed Boost", CurrentValue = false, Flag = "SpeedToggle", Callback = function(Value) setSpeed(Value) end })
-MovementTab:CreateSlider({ Name = "Speed Multiplier", Range = {0.1, 5}, Increment = 0.1, Suffix = "x", CurrentValue = 1, Flag = "SpeedValue", Callback = function(Value) SpeedValue = Value end })
-
-MovementTab:CreateSection("No Clip")
-MovementTab:CreateToggle({ Name = "Enable No Clip", CurrentValue = false, Flag = "NoClipToggle", Callback = function(Value) toggleNoClip(Value) end })
+MovementTab:CreateToggle({ Name = "Speed Boost", CurrentValue = false, Flag = "SpeedToggle",
+    Callback = function(v) setSpeed(v) end
+})
+MovementTab:CreateSlider({ Name = "Speed Multiplier", Range = {0.1,5}, Increment = 0.1, Suffix = "x", CurrentValue = 1, Flag = "SpeedValue",
+    Callback = function(v) SpeedValue = v end
+})
 
 MovementTab:CreateSection("Death Barrier Disabler")
-MovementTab:CreateToggle({ Name = "Disable Death Barriers", CurrentValue = false, Flag = "DeathBarrierToggle", Callback = function(Value) toggleDeathBarrier(Value) end })
+MovementTab:CreateToggle({ Name = "Disable Death Barriers", CurrentValue = false, Flag = "DeathBarrierToggle",
+    Callback = function(v) toggleDeathBarrier(v) end
+})
 
 MovementTab:CreateSection("🛸 Fly + Noclip")
-MovementTab:CreateLabel("WASD to move, Space to go up, Ctrl/C to go down. Noclip is built in while flying.")
-MovementTab:CreateToggle({
-    Name = "Enable Fly",
-    CurrentValue = false,
-    Flag = "FlyToggle",
-    Callback = function(Value)
-        flyEnabled = Value
-        if flyEnabled then
-            startFly()
-            Rayfield:Notify({ Title = "🛸 Fly: ON", Content = "Fly + Noclip active. WASD/Space/Ctrl to move.", Duration = 3, Image = 4483362458 })
-        else
-            stopFly()
-            Rayfield:Notify({ Title = "Fly: OFF", Content = "Fly and noclip disabled", Duration = 2, Image = 4483362458 })
-        end
+MovementTab:CreateLabel("WASD to move, Space to go up, Ctrl/C to go down.")
+MovementTab:CreateToggle({ Name = "Enable Fly", CurrentValue = false, Flag = "FlyToggle",
+    Callback = function(v)
+        flyEnabled = v
+        if v then startFly() else stopFly() end
     end
 })
-MovementTab:CreateSlider({
-    Name = "Fly Speed",
-    Range = {10, 5000},
-    Increment = 50,
-    Suffix = " st/s",
-    CurrentValue = 150,
-    Flag = "FlySpeed",
-    Callback = function(Value) flySpeed = Value end
+MovementTab:CreateSlider({ Name = "Fly Speed", Range = {10,5000}, Increment = 50, Suffix = " st/s", CurrentValue = 150, Flag = "FlySpeed",
+    Callback = function(v) flySpeed = v end
 })
 
--- ════════════════════════════════════════════════
 -- ORBIT TAB
--- ════════════════════════════════════════════════
 local OrbitTab = Window:CreateTab("🌀 Orbit", 4483362458)
 
 local function getPlayerList()
     local names = {}
-    for _, p in ipairs(Players:GetPlayers()) do
+    for _, p in Players:GetPlayers() do
         if p ~= player then table.insert(names, p.Name) end
     end
     return names
 end
 
 OrbitTab:CreateSection("Orbit Settings")
-OrbitTab:CreateSlider({ Name = "X Offset", Range = {-10, 10}, Increment = 1, Suffix = "", CurrentValue = 0, Flag = "XOffset", Callback = function(Value) xOffset = Value end })
-OrbitTab:CreateSlider({ Name = "Y Offset", Range = {-10, 10}, Increment = 1, Suffix = "", CurrentValue = 0, Flag = "YOffset", Callback = function(Value) yOffset = Value end })
-OrbitTab:CreateSlider({ Name = "X Scale", Range = {0.5, 10}, Increment = 0.5, Suffix = "", CurrentValue = 3, Flag = "XScale", Callback = function(Value) xScale = Value end })
-OrbitTab:CreateSlider({ Name = "Orbit Speed", Range = {0.1, 5}, Increment = 0.1, Suffix = "", CurrentValue = 1, Flag = "OrbitSpeed", Callback = function(Value) orbitSpeed = Value end })
+OrbitTab:CreateSlider({ Name = "X Offset", Range = {-10,10}, Increment = 1, CurrentValue = 0, Flag = "XOffset", Callback = function(v) xOffset = v end })
+OrbitTab:CreateSlider({ Name = "Y Offset", Range = {-10,10}, Increment = 1, CurrentValue = 0, Flag = "YOffset", Callback = function(v) yOffset = v end })
+OrbitTab:CreateSlider({ Name = "X Scale", Range = {0.5,10}, Increment = 0.5, CurrentValue = 3, Flag = "XScale", Callback = function(v) xScale = v end })
+OrbitTab:CreateSlider({ Name = "Orbit Speed", Range = {0.1,5}, Increment = 0.1, CurrentValue = 1, Flag = "OrbitSpeed", Callback = function(v) orbitSpeed = v end })
 
 OrbitTab:CreateSection("🔮 Movement Prediction")
-OrbitTab:CreateLabel("Predicts where the target is moving so orbit stays ahead of them.")
-OrbitTab:CreateToggle({
-    Name = "Enable Prediction",
-    CurrentValue = false,
-    Flag = "OrbitPredictionToggle",
-    Callback = function(Value)
-        orbitPredictionEnabled = Value
-        predictedVelocity = Vector3.new(0, 0, 0)
-        lastTargetPosition = nil
-        if Value then
-            Rayfield:Notify({ Title = "🔮 Prediction: ON", Content = "Orbit will anticipate target movement", Duration = 2, Image = 4483362458 })
-        else
-            Rayfield:Notify({ Title = "Prediction: OFF", Content = "Using real-time position only", Duration = 2, Image = 4483362458 })
-        end
+OrbitTab:CreateLabel("Least-squares predictor over 8-sample window. Detects teleports, tracks acceleration, confidence-weighted look-ahead up to 1.4s.")
+OrbitTab:CreateToggle({ Name = "Enable Prediction", CurrentValue = false, Flag = "OrbitPredictionToggle",
+    Callback = function(v)
+        orbitPredictionEnabled = v
+        predReset()
     end
 })
-OrbitTab:CreateSlider({
-    Name = "Prediction Strength",
-    Range = {0, 1},
-    Increment = 0.05,
-    Suffix = "s",
-    CurrentValue = 0.2,
-    Flag = "OrbitPredictionStrength",
-    Callback = function(Value)
-        orbitPredictionStrength = Value
-    end
+OrbitTab:CreateToggle({ Name = "🚀 Auto Prediction Strength", CurrentValue = true, Flag = "OrbitAutoPredictionToggle",
+    Callback = function(v) orbitAutoPrediction = v end
+})
+OrbitTab:CreateSlider({ Name = "Manual Prediction Strength", Range = {0,1}, Increment = 0.05, Suffix = "s", CurrentValue = 0.2, Flag = "OrbitPredictionStrength",
+    Callback = function(v) orbitPredictionStrength = v end
 })
 
 OrbitTab:CreateSection("Select Player")
 local PlayerDropdown = OrbitTab:CreateDropdown({
-    Name = "Select Player",
-    Options = getPlayerList(),
-    CurrentOption = {"None"},
-    MultipleOptions = false,
-    Flag = "OrbitPlayerSelect",
-    Callback = function(Option)
-        local selectedName = Option[1]
-        orbitSelectedName = selectedName
-        spectateSelectedName = selectedName
-        tpSelectedName = selectedName
+    Name = "Select Player", Options = getPlayerList(), CurrentOption = {"None"}, MultipleOptions = false, Flag = "OrbitPlayerSelect",
+    Callback = function(opt)
+        orbitSelectedName = opt[1]
+        spectateSelectedName = opt[1]
+        tpSelectedName = opt[1]
     end
 })
 
 OrbitTab:CreateSection("Actions")
-OrbitTab:CreateToggle({ Name = "Orbit", CurrentValue = false, Flag = "OrbitToggle", Callback = function(Value)
-    if Value then
-        local success = startOrbit()
-        if not success then Rayfield.Flags["OrbitToggle"]:Set(false) end
-    else
-        stopOrbit()
+OrbitTab:CreateToggle({ Name = "Orbit", CurrentValue = false, Flag = "OrbitToggle",
+    Callback = function(v)
+        if v then
+            if not startOrbit() then Rayfield.Flags["OrbitToggle"]:Set(false) end
+        else stopOrbit() end
     end
-end })
+})
 OrbitTab:CreateButton({ Name = "Spectate", Callback = function() spectatePlayer() end })
 OrbitTab:CreateButton({ Name = "Unspectate", Callback = function() unspectate() end })
-OrbitTab:CreateToggle({ Name = "Instant TP (Continuous)", CurrentValue = false, Flag = "InstantTPToggle", Callback = function(Value)
-    if Value then
-        local success = startInstantTP()
-        if not success then Rayfield.Flags["InstantTPToggle"]:Set(false) end
-    else
-        stopInstantTP()
+OrbitTab:CreateToggle({ Name = "Instant TP (Continuous)", CurrentValue = false, Flag = "InstantTPToggle",
+    Callback = function(v)
+        if v then
+            if not startInstantTP() then Rayfield.Flags["InstantTPToggle"]:Set(false) end
+        else stopInstantTP() end
     end
-end })
+})
+OrbitTab:CreateToggle({ Name = "Auto Reset (every 0.1s)", CurrentValue = false, Flag = "AutoResetToggle",
+    Callback = function(v)
+        autoResetEnabled = v
+        if v then
+            if autoResetThread then task.cancel(autoResetThread) end
+            autoResetThread = task.spawn(function()
+                while autoResetEnabled do
+                    task.wait(0.1)
+                    local char = player.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    local hum = char and char:FindFirstChild("Humanoid")
+                    if hrp and hum then
+                        hrp.CFrame = CFrame.new(99999999, 9000000, 0)
+                        task.wait()
+                        hum.Health = 0
+                    end
+                end
+            end)
+        else
+            if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
+        end
+    end
+})
+
+local testFarmEnabled = false
+local testFarmThread
+
+local function getNearestPlayer()
+    local myHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+    local nearest, nearestDist = nil, math.huge
+    for _, p in Players:GetPlayers() do
+        if p ~= player and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local d = (hrp.Position - myHRP.Position).Magnitude
+                if d < nearestDist then nearestDist = d nearest = p end
+            end
+        end
+    end
+    return nearest
+end
+
+OrbitTab:CreateToggle({ Name = "Test Farm", CurrentValue = false, Flag = "TestFarmToggle",
+    Callback = function(v)
+        testFarmEnabled = v
+        if v then
+            if testFarmThread then task.cancel(testFarmThread) end
+            -- Find nearest and start instant TP
+            local near = getNearestPlayer()
+            if near then
+                tpSelectedName = near.Name
+                orbitSelectedName = near.Name
+                spectateSelectedName = near.Name
+                if instantTPEnabled then stopInstantTP() end
+                startInstantTP()
+            else
+                Rayfield:Notify({ Title = "Test Farm", Content = "No players found nearby", Duration = 2, Image = 4483362458 })
+            end
+            -- Continuously teleport up while instant TP keeps us on the target
+            testFarmThread = task.spawn(function()
+                while testFarmEnabled do
+                    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then hrp.CFrame = CFrame.new(0, 999999999999999999999, 0) end
+                    task.wait()
+                end
+            end)
+            Rayfield:Notify({ Title = "Test Farm: ON", Content = "Teleporting up + instant TP on target", Duration = 3, Image = 4483362458 })
+        else
+            testFarmEnabled = false
+            if testFarmThread then task.cancel(testFarmThread) testFarmThread = nil end
+            stopInstantTP()
+            Rayfield:Notify({ Title = "Test Farm: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
+        end
+    end
+})
 OrbitTab:CreateButton({ Name = "Refresh Player List", Callback = function()
     PlayerDropdown:Refresh(getPlayerList())
     Rayfield:Notify({ Title = "Refreshed", Content = "Player list updated", Duration = 2, Image = 4483362458 })
 end })
 
-Players.PlayerAdded:Connect(function()
-    task.wait(0.5)
-    PlayerDropdown:Refresh(getPlayerList())
-end)
-
-Players.PlayerRemoving:Connect(function(removedPlayer)
-    if orbiting and selectedPlayer == removedPlayer then stopOrbit() end
-    task.wait(0.1)
-    PlayerDropdown:Refresh(getPlayerList())
+Players.PlayerAdded:Connect(function() task.wait(0.5) PlayerDropdown:Refresh(getPlayerList()) end)
+Players.PlayerRemoving:Connect(function(removed)
+    if orbiting and selectedPlayer == removed then stopOrbit() end
+    task.wait(0.1) PlayerDropdown:Refresh(getPlayerList())
 end)
 
 -- ════════════════════════════════════════════════
 -- KEYBINDS
 -- ════════════════════════════════════════════════
-local holdingH = false
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
+local hTeleportSaved = nil
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
     if input.KeyCode == Enum.KeyCode.N then toggleTeleportToSky() end
-    if input.KeyCode == Enum.KeyCode.H and not holdingH then
-        holdingH = true
-        task.spawn(function()
-            while holdingH do
-                local char = player.Character
-                local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                if hrp then hrp.CFrame = CFrame.new(0, 100000000000000, 0) end
-                task.wait(0.05)
-            end
-        end)
-        Rayfield:Notify({ Title = "Hold Teleport: ON", Content = "Holding H — spamming teleport", Duration = 2, Image = 4483362458 })
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.H then
-        holdingH = false
-        Rayfield:Notify({ Title = "Hold Teleport: OFF", Content = "Released H", Duration = 1, Image = 4483362458 })
+        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        if hTeleportSaved then
+            hrp.CFrame = hTeleportSaved
+            hTeleportSaved = nil
+        else
+            hTeleportSaved = hrp.CFrame
+            hrp.CFrame = CFrame.new(0, 999999999999999999999, 0)
+        end
     end
 end)
 
@@ -1693,33 +1140,20 @@ end)
 -- CLEANUP ON GUI CLOSE
 -- ════════════════════════════════════════════════
 game:GetService("CoreGui").ChildRemoved:Connect(function(child)
-    if child.Name == "Rayfield" then
-        stopTRexAura()
-        stopKitsuneAura()
-        stopDragonAura()
-        stopGasAura()
-        stopBladeAura()
-        stopKillAura()
-        stopTRexMultiAura()
-        stopKitsuneMultiAura()
-        stopDragonMultiAura()
-        stopGasMultiAura()
-        stopBladeMultiAura()
-        stopFly()
-        if orbitConnection then orbitConnection:Disconnect() end
-        if instantTPConnection then instantTPConnection:Disconnect() end
-        if FastAttackConnection then FastAttackConnection:Disconnect() end
-        if TeleportAttackConnection then TeleportAttackConnection:Disconnect() end
-        if SpeedConnection then SpeedConnection:Disconnect() end
-        if AutoTPConnection then AutoTPConnection:Disconnect() end
-        if NoClipConnection then NoClipConnection:Disconnect() end
-        if BringAllNPCsConnection then BringAllNPCsConnection:Disconnect() end
-        for _, conn in ipairs(DeathBarrierConnections) do if conn and conn.Disconnect then conn:Disconnect() end end
-        if HitboxEnabled then extendHitboxes(false) end
-        if NoClipEnabled then toggleNoClip(false) end
-        if DeathBarrierDisabled then toggleDeathBarrier(false) end
-        if BringAllNPCsEnabled then toggleBringAllNPCs(false) end
-    end
+    if child.Name ~= "Rayfield" then return end
+    for _, aura in Auras do aura.single.stop() aura.multi.stop() end
+    stopKillAura()
+    stopFly()
+    if orbitConnection then orbitConnection:Disconnect() end
+    if instantTPConnection then instantTPConnection:Disconnect() end
+    if FastAttackConnection then FastAttackConnection:Disconnect() end
+    if SpeedConnection then SpeedConnection:Disconnect() end
+    if AutoTPConnection then AutoTPConnection:Disconnect() end
+    for _, c in DeathBarrierConnections do if c and c.Disconnect then c:Disconnect() end end
+    if HitboxEnabled then extendHitboxes(false) end
+    if DeathBarrierDisabled then toggleDeathBarrier(false) end
+    if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
+    if testFarmThread then task.cancel(testFarmThread) testFarmThread = nil end
 end)
 
 Rayfield:LoadConfiguration()
