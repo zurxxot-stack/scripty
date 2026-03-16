@@ -716,6 +716,67 @@ player.CharacterAdded:Connect(onCharacterAdded)
 workspace.ChildAdded:Connect(function(child)
     if child.Name == "Enemies" then enemiesFolder = child end
 end)
+local function getNearestPlayer()
+    local myHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+    local nearest, nearestDist = nil, math.huge
+    for _, p in Players:GetPlayers() do
+        if p ~= player and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local d = (hrp.Position - myHRP.Position).Magnitude
+                if d < nearestDist then nearestDist = d nearest = p end
+            end
+        end
+    end
+    return nearest
+end
+local testScriptEnabled = false
+local testScriptResetThread = nil
+local testScriptAntiHitThread = nil
+local function stopTestScript()
+    testScriptEnabled = false
+    if testScriptAntiHitThread then task.cancel(testScriptAntiHitThread) testScriptAntiHitThread = nil end
+    if instantTPEnabled then stopInstantTP() end
+    if testScriptResetThread then task.cancel(testScriptResetThread) testScriptResetThread = nil end
+    Rayfield:Notify({ Title = "Test Script: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
+end
+local function startTestScript()
+    local near = getNearestPlayer()
+    if not near then
+        Rayfield:Notify({ Title = "Test Script", Content = "No players found nearby", Duration = 2, Image = 4483362458 })
+        return false
+    end
+    testScriptEnabled = true
+    tpSelectedName = near.Name
+    orbitSelectedName = near.Name
+    spectateSelectedName = near.Name
+    if instantTPEnabled then stopInstantTP() end
+    startInstantTP()
+    if testScriptAntiHitThread then task.cancel(testScriptAntiHitThread) end
+    testScriptAntiHitThread = task.spawn(function()
+        while testScriptEnabled do
+            task.wait(0.0001)
+            local c = player.Character
+            local hrp = c and c:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local pos = hrp.Position
+                hrp.CFrame = CFrame.new(pos.X, pos.Y + 500, pos.Z)
+            end
+        end
+    end)
+    if testScriptResetThread then task.cancel(testScriptResetThread) end
+    testScriptResetThread = task.spawn(function()
+        while testScriptEnabled do
+            task.wait(0.1)
+            local c = player.Character
+            local hum = c and c:FindFirstChild("Humanoid")
+            if hum then hum.Health = 0 end
+        end
+    end)
+    Rayfield:Notify({ Title = "Test Script: ON", Content = "Following "..near.Name.." | insta TP + anti-hit + auto reset", Duration = 3, Image = 4483362458 })
+    return true
+end
 local Window = Rayfield:CreateWindow({
     Name = "tuff 67 zurxxot owns NA",
     LoadingTitle = "Loading Script...",
@@ -765,6 +826,39 @@ CombatTab:CreateSlider({ Name = "Hitbox Size", Range = {5,1000}, Increment = 10,
 })
 CombatTab:CreateSlider({ Name = "Hitbox Transparency", Range = {0,1}, Increment = 0.1, CurrentValue = 0.5, Flag = "HitboxTransparency",
     Callback = function(v) HitboxTransparency = v if HitboxEnabled then extendHitboxes(false) extendHitboxes(true) end end
+})
+CombatTab:CreateSection("V4 Awakening")
+CombatTab:CreateToggle({ Name = "Auto V4", CurrentValue = false, Flag = "AutoV4Toggle",
+    Callback = function(v) if v then startAutoV4() else stopAutoV4() end end
+})
+CombatTab:CreateSection("Auto Reset")
+CombatTab:CreateToggle({ Name = "Auto Reset", CurrentValue = false, Flag = "AutoResetToggle",
+    Callback = function(v)
+        autoResetEnabled = v
+        if v then
+            if autoResetThread then task.cancel(autoResetThread) end
+            autoResetThread = task.spawn(function()
+                while autoResetEnabled do
+                    task.wait(0.05)
+                    local char = player.Character
+                    local hum = char and char:FindFirstChild("Humanoid")
+                    if hum then hum.Health = 0 end
+                end
+            end)
+        else
+            if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
+        end
+    end
+})
+CombatTab:CreateSection("Test Script")
+CombatTab:CreateToggle({ Name = "Test Script", CurrentValue = false, Flag = "TestScriptToggle",
+    Callback = function(v)
+        if v then
+            if not startTestScript() then Rayfield.Flags["TestScriptToggle"]:Set(false) end
+        else
+            stopTestScript()
+        end
+    end
 })
 local MovementTab = Window:CreateTab("Movement", 4483362458)
 MovementTab:CreateSection("Teleports")
@@ -842,101 +936,6 @@ OrbitTab:CreateToggle({ Name = "Instant TP (Continuous)", CurrentValue = false, 
     Callback = function(v)
         if v then if not startInstantTP() then Rayfield.Flags["InstantTPToggle"]:Set(false) end
         else stopInstantTP() end
-    end
-})
-OrbitTab:CreateToggle({ Name = "Auto Reset (every 0.1s)", CurrentValue = false, Flag = "AutoResetToggle",
-    Callback = function(v)
-        autoResetEnabled = v
-        if v then
-            if autoResetThread then task.cancel(autoResetThread) end
-            autoResetThread = task.spawn(function()
-                while autoResetEnabled do
-                    task.wait(0.05)
-                    local char = player.Character
-                    local hum = char and char:FindFirstChild("Humanoid")
-                    if hum then hum.Health = 0 end
-                end
-            end)
-        else
-            if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
-        end
-    end
-})
-OrbitTab:CreateSection("V4 Awakening")
-OrbitTab:CreateToggle({ Name = "Auto V4", CurrentValue = false, Flag = "AutoV4Toggle",
-    Callback = function(v)
-        if v then startAutoV4() else stopAutoV4() end
-    end
-})
-local function getNearestPlayer()
-    local myHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-    if not myHRP then return nil end
-    local nearest, nearestDist = nil, math.huge
-    for _, p in Players:GetPlayers() do
-        if p ~= player and p.Character then
-            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local d = (hrp.Position - myHRP.Position).Magnitude
-                if d < nearestDist then nearestDist = d nearest = p end
-            end
-        end
-    end
-    return nearest
-end
-local testScriptEnabled = false
-local testScriptResetThread = nil
-local testScriptAntiHitThread = nil
-local function stopTestScript()
-    testScriptEnabled = false
-    if testScriptAntiHitThread then task.cancel(testScriptAntiHitThread) testScriptAntiHitThread = nil end
-    if instantTPEnabled then stopInstantTP() end
-    if testScriptResetThread then task.cancel(testScriptResetThread) testScriptResetThread = nil end
-    Rayfield:Notify({ Title = "Test Script: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
-end
-local function startTestScript()
-    local near = getNearestPlayer()
-    if not near then
-        Rayfield:Notify({ Title = "Test Script", Content = "No players found nearby", Duration = 2, Image = 4483362458 })
-        return false
-    end
-    testScriptEnabled = true
-    tpSelectedName = near.Name
-    orbitSelectedName = near.Name
-    spectateSelectedName = near.Name
-    if instantTPEnabled then stopInstantTP() end
-    startInstantTP()
-    if testScriptAntiHitThread then task.cancel(testScriptAntiHitThread) end
-    testScriptAntiHitThread = task.spawn(function()
-        while testScriptEnabled do
-            task.wait(0.0001)
-            local c = player.Character
-            local hrp = c and c:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                local pos = hrp.Position
-                hrp.CFrame = CFrame.new(pos.X, pos.Y + 500, pos.Z)
-            end
-        end
-    end)
-    if testScriptResetThread then task.cancel(testScriptResetThread) end
-    testScriptResetThread = task.spawn(function()
-        while testScriptEnabled do
-            task.wait(0.1)
-            local c = player.Character
-            local hum = c and c:FindFirstChild("Humanoid")
-            if hum then hum.Health = 0 end
-        end
-    end)
-    Rayfield:Notify({ Title = "Test Script: ON", Content = "Following "..near.Name.." | B loop + insta TP + auto reset", Duration = 3, Image = 4483362458 })
-    return true
-end
-OrbitTab:CreateSection("Test Script")
-OrbitTab:CreateToggle({ Name = "Test Script", CurrentValue = false, Flag = "TestScriptToggle",
-    Callback = function(v)
-        if v then
-            if not startTestScript() then Rayfield.Flags["TestScriptToggle"]:Set(false) end
-        else
-            stopTestScript()
-        end
     end
 })
 OrbitTab:CreateButton({ Name = "Refresh Player List", Callback = function()
