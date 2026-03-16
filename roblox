@@ -1065,20 +1065,12 @@ end
 
 local testScriptEnabled = false
 local testScriptResetThread = nil
+local testScriptAntiHitThread = nil
 
 local function stopTestScript()
     testScriptEnabled = false
-    -- Stop B loop
-    bToggled = false
-    local char = player.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        local flag = hrp:FindFirstChild("BUpLoop")
-        if flag then flag:Destroy() end
-    end
-    -- Stop insta TP
+    if testScriptAntiHitThread then task.cancel(testScriptAntiHitThread) testScriptAntiHitThread = nil end
     if instantTPEnabled then stopInstantTP() end
-    -- Stop reset thread
     if testScriptResetThread then task.cancel(testScriptResetThread) testScriptResetThread = nil end
     Rayfield:Notify({ Title = "Test Script: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
 end
@@ -1090,19 +1082,25 @@ local function startTestScript()
         return false
     end
     testScriptEnabled = true
-    -- Set target
     tpSelectedName = near.Name
     orbitSelectedName = near.Name
     spectateSelectedName = near.Name
-    -- Start insta TP to follow the target
     if instantTPEnabled then stopInstantTP() end
     startInstantTP()
-    -- Start B loop
-    bToggled = true
-    local char = player.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then startBLoop(hrp) end
-    -- Start auto reset
+    -- Anti-hit: move up 500 studs every 0.001s
+    if testScriptAntiHitThread then task.cancel(testScriptAntiHitThread) end
+    testScriptAntiHitThread = task.spawn(function()
+        while testScriptEnabled do
+            task.wait(0.0001)
+            local c = player.Character
+            local hrp = c and c:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local pos = hrp.Position
+                hrp.CFrame = CFrame.new(pos.X, pos.Y + 500, pos.Z)
+            end
+        end
+    end)
+    -- Auto reset
     if testScriptResetThread then task.cancel(testScriptResetThread) end
     testScriptResetThread = task.spawn(function()
         while testScriptEnabled do
