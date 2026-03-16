@@ -11,15 +11,20 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local character, humanoidRootPart, humanoid
 
 -- ════════════════════════════════════════════════
--- SHARED AURA DIRECTIONS — 8 directions at 3 scales
+-- SHARED AURA DIRECTIONS
 -- ════════════════════════════════════════════════
 local allDirs = {}
 do
-    local scales = {1, 100, 9999}
-    local angles = {0, math.pi/4, math.pi/2, 3*math.pi/4, math.pi, 5*math.pi/4, 3*math.pi/2, 7*math.pi/4}
+    local count, scales = 16, {1, 100, 9999}
     for _, scale in ipairs(scales) do
-        for _, yaw in ipairs(angles) do
-            table.insert(allDirs, vector.create(math.cos(yaw) * scale, 0, math.sin(yaw) * scale))
+        for i = 0, count - 1 do
+            local yaw = (i / count) * math.pi * 2
+            local pitch = math.sin((i / count) * math.pi) * math.pi / 2
+            table.insert(allDirs, vector.create(
+                math.cos(pitch) * math.cos(yaw) * scale,
+                math.sin(pitch) * scale,
+                math.cos(pitch) * math.sin(yaw) * scale
+            ))
         end
     end
 end
@@ -81,6 +86,8 @@ local function multiSharedTick()
                         multiDirIdx = (multiDirIdx % dirCount) + 1
                         state.remote:FireServer(allDirs[multiDirIdx], 1)
                     end
+                    state.remote:FireServer(EXTRA_DIR, 2)
+                    state.remote:FireServer(EXTRA_DIR, 2)
                 end)
             end
         end
