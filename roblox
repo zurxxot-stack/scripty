@@ -946,6 +946,7 @@ end })
 Players.PlayerAdded:Connect(function() task.wait(0.5) PlayerDropdown:Refresh(getPlayerList()) end)
 Players.PlayerRemoving:Connect(function(removed)
     if orbiting and selectedPlayer == removed then stopOrbit() end
+    removeESP(removed)
     task.wait(0.1) PlayerDropdown:Refresh(getPlayerList())
 end)
 UserInputService.InputBegan:Connect(function(input, gp)
@@ -966,12 +967,114 @@ UserInputService.InputBegan:Connect(function(input, gp)
         Rayfield:Notify({ Title = "B Anti-Hit: ON", Content = "Random Y teleport loop active", Duration = 2, Image = 4483362458 })
     end
 end)
+local espEnabled = false
+local espObjects = {}
+local espConnection
+
+local function removeESP(p)
+    local data = espObjects[p]
+    if not data then return end
+    if data.box and data.box.Parent then data.box:Destroy() end
+    if data.nameLabel and data.nameLabel.Parent then data.nameLabel:Destroy() end
+    if data.healthLabel and data.healthLabel.Parent then data.healthLabel:Destroy() end
+    espObjects[p] = nil
+end
+
+local function createESP(p)
+    if espObjects[p] then return end
+    local box = Instance.new("BoxHandleAdornment")
+    box.AlwaysOnTop = true
+    box.ZIndex = 5
+    box.Size = Vector3.new(4, 6, 4)
+    box.SizeRelativeOffset = Vector3.new(0, 0.5, 0)
+    box.Color3 = Color3.fromRGB(255, 0, 0)
+    box.Transparency = 0.5
+    local nameLabel = Instance.new("BillboardGui")
+    nameLabel.AlwaysOnTop = true
+    nameLabel.Size = UDim2.new(0, 100, 0, 20)
+    nameLabel.StudsOffset = Vector3.new(0, 4, 0)
+    local nameText = Instance.new("TextLabel", nameLabel)
+    nameText.BackgroundTransparency = 1
+    nameText.Size = UDim2.new(1, 0, 1, 0)
+    nameText.Font = Enum.Font.GothamBold
+    nameText.TextSize = 13
+    nameText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameText.TextStrokeTransparency = 0
+    nameText.Text = p.Name
+    local healthLabel = Instance.new("BillboardGui")
+    healthLabel.AlwaysOnTop = true
+    healthLabel.Size = UDim2.new(0, 100, 0, 20)
+    healthLabel.StudsOffset = Vector3.new(0, 3, 0)
+    local healthText = Instance.new("TextLabel", healthLabel)
+    healthText.BackgroundTransparency = 1
+    healthText.Size = UDim2.new(1, 0, 1, 0)
+    healthText.Font = Enum.Font.Gotham
+    healthText.TextSize = 12
+    healthText.TextColor3 = Color3.fromRGB(0, 255, 0)
+    healthText.TextStrokeTransparency = 0
+    espObjects[p] = { box = box, nameLabel = nameLabel, healthLabel = healthLabel, nameText = nameText, healthText = healthText }
+end
+
+local function updateESP()
+    for _, p in Players:GetPlayers() do
+        if p == player then continue end
+        local char = p.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChild("Humanoid")
+        if not hrp or not hum then
+            removeESP(p)
+            continue
+        end
+        if not espObjects[p] then createESP(p) end
+        local data = espObjects[p]
+        if not data then continue end
+        data.box.Adornee = hrp
+        data.box.Parent = hrp
+        data.nameLabel.Adornee = hrp
+        data.nameLabel.Parent = hrp
+        data.healthLabel.Adornee = hrp
+        data.healthLabel.Parent = hrp
+        local pct = math.floor((hum.Health / math.max(hum.MaxHealth, 1)) * 100)
+        data.healthText.Text = pct .. "%"
+        local g = math.floor(pct * 2.55)
+        local r = 255 - g
+        data.healthText.TextColor3 = Color3.fromRGB(r, g, 0)
+    end
+end
+
+local function startESP()
+    espEnabled = true
+    for _, p in Players:GetPlayers() do
+        if p ~= player then createESP(p) end
+    end
+    espConnection = RunService.Heartbeat:Connect(function()
+        if not espEnabled then espConnection:Disconnect() espConnection = nil return end
+        updateESP()
+    end)
+end
+
+local function stopESP()
+    espEnabled = false
+    if espConnection then espConnection:Disconnect() espConnection = nil end
+    for p in espObjects do removeESP(p) end
+end
+
+local ESPTab = Window:CreateTab("ESP", 4483362458)
+ESPTab:CreateSection("Players")
+ESPTab:CreateToggle({ Name = "Player ESP", CurrentValue = false, Flag = "ESPToggle",
+    Callback = function(v)
+        if v then startESP() else stopESP() end
+    end
+})
+
+
 game:GetService("CoreGui").ChildRemoved:Connect(function(child)
     if child.Name ~= "Rayfield" then return end
     for _, aura in Auras do aura.single.stop() aura.multi.stop() end
     stopKillAura()
     stopFly()
     stopAutoV4()
+    stopESP()
     bToggled = false
     local char = player.Character
     if char then
