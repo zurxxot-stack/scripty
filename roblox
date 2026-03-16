@@ -31,10 +31,8 @@ end
 local dirCount   = #allDirs
 local EXTRA_DIR  = vector.create(-0.9945698976516724, 0, 0.10407081246376038)
 local SINGLE_DIR = vector.create(0.12935088574886322, 0, -0.9915988445281982)
--- Three fixed directions 120° apart for guaranteed spread coverage
 local DIR_A = vector.create(1, 0, 0)
-local DIR_B = vector.create(-0.5, 0,  0.866)
-local DIR_C = vector.create(-0.5, 0, -0.866)
+local DIR_B = vector.create(-1, 0, 0)
 
 -- ════════════════════════════════════════════════
 -- GENERIC AURA FACTORY
@@ -99,10 +97,9 @@ local function makeMultiAura(toolName)
                     fs(r, allDirs[di], 1)
                 end
                 state.dirIndex = di
-                -- Three fixed 120° spread directions every tick
+                -- Two fixed 180° directions every tick
                 fs(r, DIR_A, 1)
                 fs(r, DIR_B, 1)
-                fs(r, DIR_C, 1)
                 fs(r, EXTRA_DIR, 2)
                 fs(r, EXTRA_DIR, 2)
             end)
