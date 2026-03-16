@@ -781,44 +781,28 @@ local function stopInstantTP()
     Rayfield:Notify({ Title = "Instant TP: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
 end
 
--- ════════════════════════════════════════════════
--- UNHITTABLE (H keybind)
--- ════════════════════════════════════════════════
-local hTeleportSaved = nil
-local hUnhittableConn = nil
-
-local function setUnhittable(enabled)
-    if hUnhittableConn then hUnhittableConn:Disconnect() hUnhittableConn = nil end
-    if enabled then
-        hUnhittableConn = RunService.Stepped:Connect(function()
-            local char = player.Character
-            if not char then return end
-            for _, p in char:GetDescendants() do
-                if p:IsA("BasePart") then
-                    p.CanCollide = false
-                    p.CanTouch   = false
-                    p.CanQuery   = false
-                end
-            end
-        end)
-    else
-        local char = player.Character
-        if char then
-            for _, p in char:GetDescendants() do
-                if p:IsA("BasePart") then
-                    p.CanCollide = true
-                    p.CanTouch   = true
-                    p.CanQuery   = true
-                end
-            end
-        end
-    end
-end
 
 -- ════════════════════════════════════════════════
 -- CHARACTER ADDED
 -- ════════════════════════════════════════════════
 local enemiesFolder = workspace:FindFirstChild("Enemies")
+
+local bToggled = false
+
+local function startBLoop(hrp)
+    local old = hrp:FindFirstChild("BUpLoop")
+    if old then old:Destroy() end
+    local flag = Instance.new("BoolValue")
+    flag.Name = "BUpLoop"
+    flag.Parent = hrp
+    task.spawn(function()
+        while flag.Parent and bToggled do
+            local pos = hrp.Position
+            hrp.CFrame = CFrame.new(pos.X, math.random(2000, 9999999), pos.Z)
+            task.wait(0.001)
+        end
+    end)
+end
 
 local function onCharacterAdded(char)
     character = char
@@ -840,6 +824,8 @@ local function onCharacterAdded(char)
         if aura.single.enabled then aura.single.stop() aura.single.enabled = true aura.single.start() end
         if aura.multi.enabled  then aura.multi.stop()  aura.multi.enabled  = true aura.multi.start()  end
     end
+    -- Restart B loop after respawn if it was active
+    if bToggled then startBLoop(humanoidRootPart) end
     camera.CameraSubject = humanoid
 end
 
@@ -906,28 +892,6 @@ CombatTab:CreateSlider({ Name = "Attack Range", Range = {100,5000}, Increment = 
     Callback = function(v) FastAttackRange = v end
 })
 
-CombatTab:CreateSection("NPC Controls")
-CombatTab:CreateButton({ Name = "TP to Nearest NPC", Callback = function()
-    if not humanoidRootPart then return end
-    local nearest, nearestDist = nil, math.huge
-    local ef = workspace:FindFirstChild("Enemies")
-    if ef then
-        for _, npc in ef:GetChildren() do
-            local h = npc:FindFirstChild("Humanoid")
-            local hrp = npc:FindFirstChild("HumanoidRootPart")
-            if h and hrp and h.Health > 0 then
-                local d = (hrp.Position - humanoidRootPart.Position).Magnitude
-                if d < nearestDist then nearestDist = d nearest = hrp end
-            end
-        end
-    end
-    if nearest then
-        humanoidRootPart.CFrame = CFrame.new(nearest.Position + Vector3.new(0, 3, 0))
-        Rayfield:Notify({ Title = "Teleported!", Content = math.floor(nearestDist).." studs", Duration = 2, Image = 4483362458 })
-    else
-        Rayfield:Notify({ Title = "No NPCs Found", Content = "None alive nearby", Duration = 2, Image = 4483362458 })
-    end
-end })
 
 CombatTab:CreateSection("Hitbox Extender")
 CombatTab:CreateToggle({ Name = "Extend Hitboxes", CurrentValue = false, Flag = "HitboxToggle",
@@ -1109,7 +1073,6 @@ OrbitTab:CreateToggle({ Name = "Test Farm", CurrentValue = false, Flag = "TestFa
             else
                 Rayfield:Notify({ Title = "Test Farm", Content = "No players found nearby", Duration = 2, Image = 4483362458 })
             end
-            setUnhittable(true)
             testFarmThread = task.spawn(function()
                 while testFarmEnabled do
                     local char = player.Character
@@ -1128,7 +1091,6 @@ OrbitTab:CreateToggle({ Name = "Test Farm", CurrentValue = false, Flag = "TestFa
             testFarmEnabled = false
             if testFarmThread then task.cancel(testFarmThread) testFarmThread = nil end
             stopInstantTP()
-            setUnhittable(false)
             Rayfield:Notify({ Title = "Test Farm: OFF", Content = "Stopped", Duration = 2, Image = 4483362458 })
         end
     end
@@ -1146,11 +1108,9 @@ end)
 
 -- ════════════════════════════════════════════════
 -- KEYBINDS
--- H = save CFrame + teleport to sky + unhittable (toggle)
 -- N = teleport into ground (toggle)
 -- B = random Y anti-hit loop (toggle) [from Cuacker Hub]
 -- ════════════════════════════════════════════════
-local bToggled = false
 
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
@@ -1158,21 +1118,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
     -- N keybind
     if input.KeyCode == Enum.KeyCode.N then
         toggleTeleportToSky()
-    end
-
-    -- H keybind
-    if input.KeyCode == Enum.KeyCode.H then
-        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        if hTeleportSaved then
-            hrp.CFrame = hTeleportSaved
-            hTeleportSaved = nil
-            setUnhittable(false)
-        else
-            hTeleportSaved = hrp.CFrame
-            hrp.CFrame = CFrame.new(0, 10000000, 0)
-            setUnhittable(true)
-        end
     end
 
     -- B keybind: random Y anti-hit loop (Cuacker Hub style)
@@ -1190,18 +1135,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
             return
         end
 
-        -- Create a flag parented to HRP so the loop self-stops on respawn
-        local flag = Instance.new("BoolValue")
-        flag.Name = "BUpLoop"
-        flag.Parent = hrp
-
-        task.spawn(function()
-            while flag.Parent and bToggled do
-                local pos = hrp.Position
-                hrp.CFrame = CFrame.new(pos.X, math.random(2000, 9999999), pos.Z)
-                task.wait(0.001)
-            end
-        end)
+        startBLoop(hrp)
 
         Rayfield:Notify({ Title = "B Anti-Hit: ON", Content = "Random Y teleport loop active", Duration = 2, Image = 4483362458 })
     end
@@ -1232,7 +1166,6 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
     if DeathBarrierDisabled then toggleDeathBarrier(false) end
     if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
     if testFarmThread then task.cancel(testFarmThread) testFarmThread = nil end
-    setUnhittable(false)
 end)
 
 Rayfield:LoadConfiguration()
