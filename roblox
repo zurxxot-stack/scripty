@@ -56,33 +56,66 @@ local function makeSingleAura(toolName)
     return state
 end
 
-local function makeMultiAura(toolName)
-    local state = { enabled = false, conn = nil, remoteSkip = 0, remote = nil }
-    function state.start()
-        if state.conn then state.conn:Disconnect() end
-        state.remoteSkip, state.remote = 0, nil
-        state.conn = RunService.Heartbeat:Connect(function()
-            if not state.enabled then state.conn:Disconnect() state.conn = nil return end
-            state.remoteSkip += 1
-            if state.remoteSkip >= 120 or not state.remote then
+-- All active multi auras share one Heartbeat connection and one direction index
+-- so total FireServer calls = (number of enabled auras) × 1 per frame, not × 26
+local activeMultiAuras = {}
+local multiSharedConn = nil
+local multiFrame = 0
+local multiDirIdx = 0
+local MULTI_THROTTLE = 2  -- fire every N frames
+
+local function multiSharedTick()
+    multiFrame += 1
+    if multiFrame % MULTI_THROTTLE ~= 0 then return end
+    for _, state in activeMultiAuras do
+        if state.enabled then
+            if not state.remote or state.remoteSkip >= 120 then
+                state.remote = findRemote(state.toolName)
                 state.remoteSkip = 0
-                state.remote = findRemote(toolName)
+            else
+                state.remoteSkip += 1
             end
-            local r = state.remote
-            if not r then return end
-            pcall(function()
-                for i = 1, dirCount do
-                    r:FireServer(allDirs[i], 1)
-                end
-                r:FireServer(EXTRA_DIR, 2)
-                r:FireServer(EXTRA_DIR, 2)
-            end)
-        end)
+            if state.remote then
+                pcall(function()
+                    for _ = 1, 4 do
+                        multiDirIdx = (multiDirIdx % dirCount) + 1
+                        state.remote:FireServer(allDirs[multiDirIdx], 1)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+local function refreshMultiConn()
+    local anyActive = false
+    for _, state in activeMultiAuras do
+        if state.enabled then anyActive = true break end
+    end
+    if anyActive and not multiSharedConn then
+        multiSharedConn = RunService.Heartbeat:Connect(multiSharedTick)
+    elseif not anyActive and multiSharedConn then
+        multiSharedConn:Disconnect()
+        multiSharedConn = nil
+    end
+end
+
+local function makeMultiAura(toolName)
+    local state = { enabled = false, remote = nil, remoteSkip = 0, toolName = toolName }
+    function state.start()
+        state.enabled = true
+        state.remote = nil
+        state.remoteSkip = 0
+        table.insert(activeMultiAuras, state)
+        refreshMultiConn()
     end
     function state.stop()
         state.enabled = false
-        if state.conn then state.conn:Disconnect() state.conn = nil end
+        for i, s in activeMultiAuras do
+            if s == state then table.remove(activeMultiAuras, i) break end
+        end
         state.remote = nil
+        refreshMultiConn()
     end
     return state
 end
@@ -840,20 +873,20 @@ local Window = Rayfield:CreateWindow({
 })
 
 -- COMBAT TAB
-local CombatTab = Window:CreateTab("⚔️ Combat", 4483362458)
+local CombatTab = Window:CreateTab("Combat", 4483362458)
 
 local auraOrder = {
-    { key = "TRex",    label = "T-Rex",   icon = "🦖" },
-    { key = "Kitsune", label = "Kitsune", icon = "🦊" },
-    { key = "Dragon",  label = "Dragon",  icon = "🐲" },
-    { key = "Gas",     label = "Gas",     icon = "☁️" },
-    { key = "Blade",   label = "Blade",   icon = "🗡️" },
+    { key = "TRex",    label = "T-Rex"   },
+    { key = "Kitsune", label = "Kitsune" },
+    { key = "Dragon",  label = "Dragon"  },
+    { key = "Gas",     label = "Gas"     },
+    { key = "Blade",   label = "Blade"   },
 }
 
 CombatTab:CreateSection("M1 Auras")
 for _, info in auraOrder do
     local aura = Auras[info.key]
-    CombatTab:CreateToggle({ Name = info.icon.." "..info.label, CurrentValue = false, Flag = info.key.."AuraSingle",
+    CombatTab:CreateToggle({ Name = info.label, CurrentValue = false, Flag = info.key.."AuraSingle",
         Callback = function(v)
             aura.single.enabled = v
             if v then aura.single.start() else aura.single.stop() end
@@ -864,7 +897,7 @@ end
 CombatTab:CreateSection("Fixxer Upper (Multi-Dir)")
 for _, info in auraOrder do
     local aura = Auras[info.key]
-    CombatTab:CreateToggle({ Name = info.icon.." "..info.label, CurrentValue = false, Flag = info.key.."AuraMulti",
+    CombatTab:CreateToggle({ Name = info.label, CurrentValue = false, Flag = info.key.."AuraMulti",
         Callback = function(v)
             aura.multi.enabled = v
             if v then aura.multi.start() else aura.multi.stop() end
@@ -872,7 +905,7 @@ for _, info in auraOrder do
     })
 end
 
-CombatTab:CreateSection("⚡ Kill Aura")
+CombatTab:CreateSection("Kill Aura")
 CombatTab:CreateToggle({ Name = "Enable Kill Aura", CurrentValue = false, Flag = "KillAuraToggle",
     Callback = function(v)
         if v then startKillAura() else stopKillAura() end
@@ -925,7 +958,7 @@ CombatTab:CreateSlider({ Name = "Hitbox Transparency", Range = {0,1}, Increment 
 })
 
 -- MOVEMENT TAB
-local MovementTab = Window:CreateTab("🚀 Movement", 4483362458)
+local MovementTab = Window:CreateTab("Movement", 4483362458)
 
 MovementTab:CreateSection("Teleports")
 MovementTab:CreateButton({ Name = "Teleport Into Ground (Toggle)", Callback = function() toggleTeleportToSky() end })
@@ -952,7 +985,7 @@ MovementTab:CreateToggle({ Name = "Disable Death Barriers", CurrentValue = false
     Callback = function(v) toggleDeathBarrier(v) end
 })
 
-MovementTab:CreateSection("🛸 Fly + Noclip")
+MovementTab:CreateSection("Fly + Noclip")
 MovementTab:CreateLabel("WASD to move, Space to go up, Ctrl/C to go down.")
 MovementTab:CreateToggle({ Name = "Enable Fly", CurrentValue = false, Flag = "FlyToggle",
     Callback = function(v)
@@ -965,7 +998,7 @@ MovementTab:CreateSlider({ Name = "Fly Speed", Range = {10,5000}, Increment = 50
 })
 
 -- ORBIT TAB
-local OrbitTab = Window:CreateTab("🌀 Orbit", 4483362458)
+local OrbitTab = Window:CreateTab("Orbit", 4483362458)
 
 local function getPlayerList()
     local names = {}
@@ -981,7 +1014,7 @@ OrbitTab:CreateSlider({ Name = "Y Offset", Range = {-10,10}, Increment = 1, Curr
 OrbitTab:CreateSlider({ Name = "X Scale", Range = {0.5,10}, Increment = 0.5, CurrentValue = 3, Flag = "XScale", Callback = function(v) xScale = v end })
 OrbitTab:CreateSlider({ Name = "Orbit Speed", Range = {0.1,5}, Increment = 0.1, CurrentValue = 1, Flag = "OrbitSpeed", Callback = function(v) orbitSpeed = v end })
 
-OrbitTab:CreateSection("🔮 Movement Prediction")
+OrbitTab:CreateSection("Movement Prediction")
 OrbitTab:CreateLabel("Least-squares predictor over 8-sample window. Detects teleports, tracks acceleration, confidence-weighted look-ahead up to 1.4s.")
 OrbitTab:CreateToggle({ Name = "Enable Prediction", CurrentValue = false, Flag = "OrbitPredictionToggle",
     Callback = function(v)
@@ -989,7 +1022,7 @@ OrbitTab:CreateToggle({ Name = "Enable Prediction", CurrentValue = false, Flag =
         predReset()
     end
 })
-OrbitTab:CreateToggle({ Name = "🚀 Auto Prediction Strength", CurrentValue = true, Flag = "OrbitAutoPredictionToggle",
+OrbitTab:CreateToggle({ Name = "Auto Prediction Strength", CurrentValue = true, Flag = "OrbitAutoPredictionToggle",
     Callback = function(v) orbitAutoPrediction = v end
 })
 OrbitTab:CreateSlider({ Name = "Manual Prediction Strength", Range = {0,1}, Increment = 0.05, Suffix = "s", CurrentValue = 0.2, Flag = "OrbitPredictionStrength",
