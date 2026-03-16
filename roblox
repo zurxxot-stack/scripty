@@ -61,68 +61,36 @@ local function makeSingleAura(toolName)
     return state
 end
 
--- All active multi auras share one Heartbeat connection and one direction index
--- so total FireServer calls = (number of enabled auras) × 1 per frame, not × 26
-local activeMultiAuras = {}
-local multiSharedConn = nil
-local multiFrame = 0
-local multiDirIdx = 0
-local MULTI_THROTTLE = 2  -- fire every N frames
-
-local function multiSharedTick()
-    multiFrame += 1
-    if multiFrame % MULTI_THROTTLE ~= 0 then return end
-    for _, state in activeMultiAuras do
-        if state.enabled then
-            if not state.remote or state.remoteSkip >= 120 then
-                state.remote = findRemote(state.toolName)
-                state.remoteSkip = 0
-            else
-                state.remoteSkip += 1
-            end
-            if state.remote then
-                pcall(function()
-                    for _ = 1, 4 do
-                        multiDirIdx = (multiDirIdx % dirCount) + 1
-                        state.remote:FireServer(allDirs[multiDirIdx], 1)
-                    end
-                    state.remote:FireServer(EXTRA_DIR, 2)
-                    state.remote:FireServer(EXTRA_DIR, 2)
-                end)
-            end
-        end
-    end
-end
-
-local function refreshMultiConn()
-    local anyActive = false
-    for _, state in activeMultiAuras do
-        if state.enabled then anyActive = true break end
-    end
-    if anyActive and not multiSharedConn then
-        multiSharedConn = RunService.Heartbeat:Connect(multiSharedTick)
-    elseif not anyActive and multiSharedConn then
-        multiSharedConn:Disconnect()
-        multiSharedConn = nil
-    end
-end
-
 local function makeMultiAura(toolName)
-    local state = { enabled = false, remote = nil, remoteSkip = 0, toolName = toolName }
+    local state = { enabled = false, conn = nil, dirIndex = 0, frame = 0, remoteSkip = 0, remote = nil }
     function state.start()
-        state.enabled = true
-        state.remote = nil
-        state.remoteSkip = 0
-        table.insert(activeMultiAuras, state)
-        refreshMultiConn()
+        if state.conn then state.conn:Disconnect() end
+        state.frame, state.remoteSkip, state.remote = 0, 0, nil
+        state.conn = RunService.Heartbeat:Connect(function()
+            if not state.enabled then state.conn:Disconnect() state.conn = nil return end
+            state.frame += 1
+            if state.frame % 3 ~= 0 then return end
+            state.remoteSkip += 1
+            if state.remoteSkip >= 120 or not state.remote then
+                state.remoteSkip = 0
+                state.remote = findRemote(toolName)
+            end
+            local r = state.remote
+            if not r then return end
+            pcall(function()
+                for _ = 1, 4 do
+                    state.dirIndex = (state.dirIndex % dirCount) + 1
+                    r:FireServer(allDirs[state.dirIndex], 1)
+                end
+                r:FireServer(EXTRA_DIR, 2)
+                r:FireServer(EXTRA_DIR, 2)
+            end)
+        end)
     end
     function state.stop()
         state.enabled = false
-        for i, s in activeMultiAuras do
-            if s == state then table.remove(activeMultiAuras, i) break end
-        end
+        if state.conn then state.conn:Disconnect() state.conn = nil end
         state.remote = nil
-        refreshMultiConn()
     end
     return state
 end
