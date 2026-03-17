@@ -843,7 +843,7 @@ CombatTab:CreateToggle({ Name = "Test Script", CurrentValue = false, Flag = "Tes
 })
 local MovementTab = Window:CreateTab("Movement", 4483362458)
 MovementTab:CreateSection("Teleports")
-MovementTab:CreateButton({ Name = "Teleport Into Ground (Toggle)", Callback = function() toggleTeleportToSky() end })
+MovementTab:CreateButton({ Name = "Teleport Into Ground (N Key)", Callback = function() toggleTeleportToSky() end })
 MovementTab:CreateButton({ Name = "Teleport to Barcode Twin", Callback = function() teleportToBarcode() end })
 MovementTab:CreateSection("Auto TP on Low Health")
 MovementTab:CreateToggle({ Name = "Auto TP When Low", CurrentValue = false, Flag = "AutoTPToggle",
@@ -948,9 +948,25 @@ Players.PlayerRemoving:Connect(function(removed)
     removeESP(removed)
     task.wait(0.1) PlayerDropdown:Refresh(getPlayerList())
 end)
+local onenabledshotho = false
 UserInputService.InputBegan:Connect(function(input, gp)
     if gp then return end
-    if input.KeyCode == Enum.KeyCode.N then toggleTeleportToSky() end
+    if input.KeyCode == Enum.KeyCode.N then
+        local char = player.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        onenabledshotho = not onenabledshotho
+        if onenabledshotho then
+            task.spawn(function()
+                while onenabledshotho do
+                    local pos = hrp.Position
+                    hrp.CFrame = CFrame.new(pos.X, pos.Y - 795679695796326, pos.Z)
+                    task.wait(0.001)
+                end
+            end)
+        end
+    end
     if input.KeyCode == Enum.KeyCode.B then
         bToggled = not bToggled
         local char = player.Character
@@ -1100,22 +1116,28 @@ MiscTab:CreateSlider({ Name = "Dash Length", Range = {10, 500}, Increment = 10, 
 })
 MiscTab:CreateSection("Teleports")
 MiscTab:CreateButton({ Name = "Teleport to Haunted (Outside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-6499.57, 128.22, -122.67) end
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then hrp.CFrame = CFrame.new(-6499.57, 128.22, -122.67) end
 end })
 MiscTab:CreateButton({ Name = "Death Barrier", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(781.98, 255.37, 33004.65) end
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then hrp.CFrame = CFrame.new(781.98, 255.37, 33004.65) end
 end })
 MiscTab:CreateButton({ Name = "Haunted (Inside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(925.31, 125.37, 32849.58) end
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then hrp.CFrame = CFrame.new(925.31, 125.37, 32849.58) end
 end })
 MiscTab:CreateButton({ Name = "Mansion (Outside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-286.95, 306.44, 596.82) end
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then hrp.CFrame = CFrame.new(-286.95, 306.44, 596.82) end
 end })
 MiscTab:CreateButton({ Name = "Mansion (Inside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(2284.91, 15.47, 905.26) end
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then hrp.CFrame = CFrame.new(2284.91, 15.47, 905.26) end
 end })
 MiscTab:CreateButton({ Name = "Mansion (3rd Sea)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-12553.56, 337.48, -7500.80) end
+    local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then hrp.CFrame = CFrame.new(-12553.56, 337.48, -7500.80) end
 end })
 local ESPTab = Window:CreateTab("ESP", 4483362458)
 ESPTab:CreateSection("Players")
