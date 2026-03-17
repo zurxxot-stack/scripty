@@ -1098,6 +1098,22 @@ MiscTab:CreateSlider({ Name = "Dash Length", Range = {10, 500}, Increment = 10, 
         end
     end
 })
+MiscTab:CreateSection("Teleports")
+MiscTab:CreateButton({ Name = "Teleport to Haunted (Outside)", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-6499.57, 128.22, -122.67) end
+end })
+MiscTab:CreateButton({ Name = "Death Barrier", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(781.98, 255.37, 33004.65) end
+end })
+MiscTab:CreateButton({ Name = "Haunted (Inside)", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(925.31, 125.37, 32849.58) end
+end })
+MiscTab:CreateButton({ Name = "Mansion (Outside)", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-286.95, 306.44, 596.82) end
+end })
+MiscTab:CreateButton({ Name = "Mansion (Inside)", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(2284.91, 15.47, 905.26) end
+end })
 local ESPTab = Window:CreateTab("ESP", 4483362458)
 ESPTab:CreateSection("Players")
 ESPTab:CreateToggle({ Name = "Player ESP", CurrentValue = false, Flag = "ESPToggle",
