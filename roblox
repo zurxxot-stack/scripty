@@ -1098,28 +1098,6 @@ MiscTab:CreateSlider({ Name = "Dash Length", Range = {10, 500}, Increment = 10, 
         end
     end
 })
-MiscTab:CreateSection("Teleports")
-MiscTab:CreateButton({ Name = "Mansion", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-2975, 210, -471) end
-end })
-MiscTab:CreateButton({ Name = "Angel Island", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1155, 120, -2720) end
-end })
-MiscTab:CreateButton({ Name = "Flamingo (Outside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1176, 13, 3575) end
-end })
-MiscTab:CreateButton({ Name = "Flamingo (Inside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1168, 65, 3593) end
-end })
-MiscTab:CreateButton({ Name = "Haunted Ship (Outside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1400, 14, 1490) end
-end })
-MiscTab:CreateButton({ Name = "Haunted Ship (Inside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1376, 36, 1500) end
-end })
-MiscTab:CreateButton({ Name = "Tiki Island", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(965, 15, 1360) end
-end })
 local ESPTab = Window:CreateTab("ESP", 4483362458)
 ESPTab:CreateSection("Players")
 ESPTab:CreateToggle({ Name = "Player ESP", CurrentValue = false, Flag = "ESPToggle",
