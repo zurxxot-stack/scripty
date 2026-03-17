@@ -1114,6 +1114,9 @@ end })
 MiscTab:CreateButton({ Name = "Mansion (Inside)", Callback = function()
     if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(2284.91, 15.47, 905.26) end
 end })
+MiscTab:CreateButton({ Name = "Mansion (3rd Sea)", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-12553.56, 337.48, -7500.80) end
+end })
 local ESPTab = Window:CreateTab("ESP", 4483362458)
 ESPTab:CreateSection("Players")
 ESPTab:CreateToggle({ Name = "Player ESP", CurrentValue = false, Flag = "ESPToggle",
