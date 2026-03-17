@@ -831,25 +831,6 @@ CombatTab:CreateSection("V4 Awakening")
 CombatTab:CreateToggle({ Name = "Auto V4", CurrentValue = false, Flag = "AutoV4Toggle",
     Callback = function(v) if v then startAutoV4() else stopAutoV4() end end
 })
-CombatTab:CreateSection("Auto Reset")
-CombatTab:CreateToggle({ Name = "Auto Reset", CurrentValue = false, Flag = "AutoResetToggle",
-    Callback = function(v)
-        autoResetEnabled = v
-        if v then
-            if autoResetThread then task.cancel(autoResetThread) end
-            autoResetThread = task.spawn(function()
-                while autoResetEnabled do
-                    task.wait(0.05)
-                    local char = player.Character
-                    local hum = char and char:FindFirstChild("Humanoid")
-                    if hum then hum.Health = 0 end
-                end
-            end)
-        else
-            if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
-        end
-    end
-})
 CombatTab:CreateSection("Test Script")
 CombatTab:CreateToggle({ Name = "Test Script", CurrentValue = false, Flag = "TestScriptToggle",
     Callback = function(v)
@@ -936,6 +917,25 @@ OrbitTab:CreateToggle({ Name = "Instant TP (Continuous)", CurrentValue = false, 
     Callback = function(v)
         if v then if not startInstantTP() then Rayfield.Flags["InstantTPToggle"]:Set(false) end
         else stopInstantTP() end
+    end
+})
+OrbitTab:CreateSection("Auto Reset")
+OrbitTab:CreateToggle({ Name = "Auto Reset", CurrentValue = false, Flag = "AutoResetToggle",
+    Callback = function(v)
+        autoResetEnabled = v
+        if v then
+            if autoResetThread then task.cancel(autoResetThread) end
+            autoResetThread = task.spawn(function()
+                while autoResetEnabled do
+                    task.wait(0.05)
+                    local char = player.Character
+                    local hum = char and char:FindFirstChild("Humanoid")
+                    if hum then hum.Health = 0 end
+                end
+            end)
+        else
+            if autoResetThread then task.cancel(autoResetThread) autoResetThread = nil end
+        end
     end
 })
 OrbitTab:CreateButton({ Name = "Refresh Player List", Callback = function()
