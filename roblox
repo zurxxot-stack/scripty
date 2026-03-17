@@ -849,23 +849,21 @@ MovementTab:CreateSection("Locations")
 MovementTab:CreateButton({ Name = "Mansion", Callback = function()
     if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-12463, 376, -7567) end
 end })
-MovementTab:CreateButton({ Name = "Angel Island", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-4627.805175781, 848.034973144531, -1706.734985351562) end
+MovementTab:CreateButton({ Name = "V4", Callback = function()
+    if humanoidRootPart then
+        humanoidRootPart.CFrame = CFrame.new(28286, 14897, 103)
+        task.wait(0.5)
+        for i = 1, 150 do
+            task.wait(0.01)
+            humanoidRootPart.CFrame = CFrame.new(28612, 14893, 106)
+        end
+    end
 end })
-MovementTab:CreateButton({ Name = "Flamingo (Inside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(2285, 38, 899) end
-end })
-MovementTab:CreateButton({ Name = "Flamingo (Outside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-287, 306, 598) end
-end })
-MovementTab:CreateButton({ Name = "Haunted Ship (Outside)", Callback = function()
+MovementTab:CreateButton({ Name = "Haunted Ship", Callback = function()
     if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-6500, 129, -123) end
 end })
-MovementTab:CreateButton({ Name = "Haunted Ship (Inside)", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(918.575561523437, 125.098335266113, 32851.527343750) end
-end })
-MovementTab:CreateButton({ Name = "Tiki Island", Callback = function()
-    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-16801.085937, 58.713085174560, 306.069946289062) end
+MovementTab:CreateButton({ Name = "Flamingo", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(2285, 38, 899) end
 end })
 MovementTab:CreateSection("Auto TP on Low Health")
 MovementTab:CreateToggle({ Name = "Auto TP When Low", CurrentValue = false, Flag = "AutoTPToggle",
