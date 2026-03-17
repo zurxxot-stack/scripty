@@ -969,96 +969,34 @@ end)
 local espEnabled = false
 local espObjects = {}
 local espConnection
-local espGui = Instance.new("ScreenGui")
-espGui.Name = "ESP"
-espGui.ResetOnSpawn = false
-espGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-espGui.Parent = game:GetService("CoreGui")
-
-local function makeFrame(parent, col)
-    local f = Instance.new("Frame", parent)
-    f.BackgroundColor3 = col
-    f.BorderSizePixel = 0
-    f.BackgroundTransparency = 0
-    return f
-end
-
-local function makeLabel(parent, textSize)
-    local f = Instance.new("Frame", parent)
-    f.BackgroundTransparency = 1
-    f.BorderSizePixel = 0
-    local t = Instance.new("TextLabel", f)
-    t.BackgroundTransparency = 1
-    t.Size = UDim2.new(1, 0, 1, 0)
-    t.Font = Enum.Font.GothamBold
-    t.TextSize = textSize
-    t.TextColor3 = Color3.fromRGB(255, 255, 255)
-    t.TextStrokeTransparency = 0
-    t.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    return f, t
-end
-
-local function createESP(p)
-    if espObjects[p] then return end
-    local container = Instance.new("Frame", espGui)
-    container.BackgroundTransparency = 1
-    container.BorderSizePixel = 0
-    local col = Color3.fromRGB(255, 50, 50)
-    local top    = makeFrame(container, col)
-    local bottom = makeFrame(container, col)
-    local left   = makeFrame(container, col)
-    local right  = makeFrame(container, col)
-    top.Size    = UDim2.new(1, 0, 0, 1)
-    bottom.Size = UDim2.new(1, 0, 0, 1)
-    left.Size   = UDim2.new(0, 1, 1, 0)
-    right.Size  = UDim2.new(0, 1, 1, 0)
-    top.Position    = UDim2.new(0, 0, 0, 0)
-    bottom.Position = UDim2.new(0, 0, 1, -1)
-    left.Position   = UDim2.new(0, 0, 0, 0)
-    right.Position  = UDim2.new(1, -1, 0, 0)
-    local nameFrame, nameText = makeLabel(container, 18)
-    nameFrame.Size = UDim2.new(1, 0, 0, 20)
-    nameFrame.Position = UDim2.new(0, 0, 0, -22)
-    nameText.Text = p.Name
-    nameText.TextXAlignment = Enum.TextXAlignment.Center
-    local hpFrame, hpText = makeLabel(container, 11)
-    hpFrame.Size = UDim2.new(1, 0, 0, 14)
-    hpFrame.Position = UDim2.new(0, 0, 1, 2)
-    hpText.TextXAlignment = Enum.TextXAlignment.Center
-    espObjects[p] = { container = container, hpText = hpText }
-end
 
 local function removeESP(p)
     local data = espObjects[p]
     if not data then return end
-    if data.container and data.container.Parent then data.container:Destroy() end
+    if data.highlight and data.highlight.Parent then data.highlight:Destroy() end
+    if data.text then data.text:Remove() end
     espObjects[p] = nil
 end
 
--- Returns min/max screen X/Y for all character parts, or nil if off screen
-local function getScreenBounds(char)
-    local vp = camera.ViewportSize
-    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
-    local onScreen = false
-    for _, part in char:GetDescendants() do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-            local s, vis = camera:WorldToViewportPoint(part.Position)
-            if vis and s.Z > 0 then
-                onScreen = true
-                if s.X < minX then minX = s.X end
-                if s.Y < minY then minY = s.Y end
-                if s.X > maxX then maxX = s.X end
-                if s.Y > maxY then maxY = s.Y end
-            end
-        end
-    end
-    if not onScreen then return nil end
-    -- clamp to viewport
-    minX = math.clamp(minX, 0, vp.X)
-    minY = math.clamp(minY, 0, vp.Y)
-    maxX = math.clamp(maxX, 0, vp.X)
-    maxY = math.clamp(maxY, 0, vp.Y)
-    return minX, minY, maxX, maxY
+local function createESP(p)
+    if espObjects[p] then return end
+    local char = p.Character
+    if not char then return end
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESPHighlight"
+    highlight.Adornee = char
+    highlight.FillColor = Color3.fromRGB(255, 60, 60)
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = char
+    local text = Drawing.new("Text")
+    text.Size = 16
+    text.Center = true
+    text.Outline = true
+    text.Color = Color3.fromRGB(255, 255, 255)
+    text.Visible = false
+    espObjects[p] = { highlight = highlight, text = text }
 end
 
 local function updateESP()
@@ -1068,33 +1006,37 @@ local function updateESP()
     for _, p in Players:GetPlayers() do
         if p == player then continue end
         local char = p.Character
-        local hum = char and char:FindFirstChild("Humanoid")
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not char or not hum or not hrp then
+        local hum = char and char:FindFirstChild("Humanoid")
+        if not char or not hrp or not hum or hum.Health <= 0 then
             removeESP(p)
             continue
         end
         if not espObjects[p] then createESP(p) end
         local data = espObjects[p]
         if not data then continue end
-        local minX, minY, maxX, maxY = getScreenBounds(char)
-        if not minX then
-            data.container.Visible = false
+        -- Re-adorn if character changed (respawn)
+        if data.highlight and data.highlight.Adornee ~= char then
+            data.highlight.Adornee = char
+            data.highlight.Parent = char
+        end
+        local pos, onScreen = camera:WorldToViewportPoint(hrp.Position)
+        if not onScreen then
+            data.text.Visible = false
             continue
         end
-        data.container.Visible = true
-        data.container.Position = UDim2.new(0, minX, 0, minY)
-        data.container.Size = UDim2.new(0, maxX - minX, 0, maxY - minY)
+        local dist = math.floor((camera.CFrame.Position - hrp.Position).Magnitude / 10)
         local pct = math.floor((hum.Health / math.max(hum.MaxHealth, 1)) * 100)
         local g = math.floor(pct * 2.55)
-        data.hpText.Text = pct .. "%"
-        data.hpText.TextColor3 = Color3.fromRGB(255 - g, g, 0)
+        data.text.Text = p.Name .. " [" .. dist .. "m] " .. pct .. "%"
+        data.text.Color = Color3.fromRGB(255 - g, g, 0)
+        data.text.Position = Vector2.new(pos.X, pos.Y - 30)
+        data.text.Visible = true
     end
 end
 
 local function startESP()
     espEnabled = true
-    espGui.Enabled = true
     for _, p in Players:GetPlayers() do
         if p ~= player then createESP(p) end
     end
@@ -1106,11 +1048,78 @@ end
 
 local function stopESP()
     espEnabled = false
-    espGui.Enabled = false
     if espConnection then espConnection:Disconnect() espConnection = nil end
     for p in espObjects do removeESP(p) end
 end
 
+local antiMoverConn = nil
+local unbreakableConn = nil
+
+local function startAntiMover()
+    antiMoverConn = RunService.Heartbeat:Connect(function()
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
+local function stopAntiMover()
+    if antiMoverConn then antiMoverConn:Disconnect() antiMoverConn = nil end
+end
+
+local function startUnbreakable()
+    unbreakableConn = RunService.Heartbeat:Connect(function()
+        local char = player.Character
+        if not char then return end
+        char:SetAttribute("UnbreakableAll", true)
+    end)
+end
+
+local function stopUnbreakable()
+    if unbreakableConn then unbreakableConn:Disconnect() unbreakableConn = nil end
+end
+
+local MiscTab = Window:CreateTab("Misc", 4483362458)
+MiscTab:CreateSection("Character")
+MiscTab:CreateToggle({ Name = "Anti Mover", CurrentValue = false, Flag = "AntiMoverToggle",
+    Callback = function(v) if v then startAntiMover() else stopAntiMover() end end
+})
+MiscTab:CreateToggle({ Name = "Unbreakable", CurrentValue = false, Flag = "UnbreakableToggle",
+    Callback = function(v) if v then startUnbreakable() else stopUnbreakable() end end
+})
+MiscTab:CreateSlider({ Name = "Dash Length", Range = {10, 500}, Increment = 10, CurrentValue = 120, Flag = "DashLength",
+    Callback = function(v)
+        local char = player.Character
+        if char then
+            char:SetAttribute("DashLength", v)
+            char:SetAttribute("DashLengthAir", v)
+        end
+    end
+})
+MiscTab:CreateSection("Teleports")
+MiscTab:CreateButton({ Name = "Mansion", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-2975, 210, -471) end
+end })
+MiscTab:CreateButton({ Name = "Angel Island", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1155, 120, -2720) end
+end })
+MiscTab:CreateButton({ Name = "Flamingo (Outside)", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1176, 13, 3575) end
+end })
+MiscTab:CreateButton({ Name = "Flamingo (Inside)", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1168, 65, 3593) end
+end })
+MiscTab:CreateButton({ Name = "Haunted Ship (Outside)", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1400, 14, 1490) end
+end })
+MiscTab:CreateButton({ Name = "Haunted Ship (Inside)", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(-1376, 36, 1500) end
+end })
+MiscTab:CreateButton({ Name = "Tiki Island", Callback = function()
+    if humanoidRootPart then humanoidRootPart.CFrame = CFrame.new(965, 15, 1360) end
+end })
 local ESPTab = Window:CreateTab("ESP", 4483362458)
 ESPTab:CreateSection("Players")
 ESPTab:CreateToggle({ Name = "Player ESP", CurrentValue = false, Flag = "ESPToggle",
@@ -1127,7 +1136,8 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
     stopFly()
     stopAutoV4()
     stopESP()
-    espGui:Destroy()
+    stopAntiMover()
+    stopUnbreakable()
     bToggled = false
     local char = player.Character
     if char then
